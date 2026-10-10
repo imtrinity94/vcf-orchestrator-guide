@@ -1,68 +1,70 @@
 /* ---------- Tokens ---------- */
 :root {
-  --sl-font: 'Archivo', system-ui, sans-serif;
-  --sl-font-mono: 'JetBrains Mono', ui-monospace, monospace;
-  --ob-serif: 'Source Serif 4', Georgia, serif;
+  --sl-font: 'IBM Plex Sans', system-ui, sans-serif;
+  --sl-font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  --ob-serif: var(--sl-font);
+  --sl-content-width: 47rem;
 
-  /* dark (default) */
-  --sl-color-accent-low: #10304f;
-  --sl-color-accent: #4ba3f0;
-  --sl-color-accent-high: #cfe6fb;
-  --sl-color-white: #ffffff;
-  --sl-color-gray-1: #e6ecf2;
-  --sl-color-gray-2: #c2ccd8;
-  --sl-color-gray-3: #8494a8;
-  --sl-color-gray-4: #4a5a6e;
-  --sl-color-gray-5: #2b394a;
-  --sl-color-gray-6: #1a2533;
-  --sl-color-black: #0e1620;
+  /* dark (default): graphite with Orchestrator orange */
+  --sl-color-accent-low: #3a1f10;
+  --sl-color-accent: #ff8142;
+  --sl-color-accent-high: #ffd9c4;
+  --sl-color-white: #f1f2f4;
+  --sl-color-gray-1: #e2e4e8;
+  --sl-color-gray-2: #b9bec6;
+  --sl-color-gray-3: #8b929c;
+  --sl-color-gray-4: #555c66;
+  --sl-color-gray-5: #2c3139;
+  --sl-color-gray-6: #171a1f;
+  --sl-color-black: #0e1013;
 
   --ob-start: #4cc38a;
-  --ob-task: #4ba3f0;
+  --ob-task: #ff8142;
   --ob-decision: #e3b341;
-  --ob-end: #9aa8b8;
-  --ob-canvas-dot: rgba(132, 148, 168, 0.18);
+  --ob-end: #9aa1ab;
+  --ob-canvas-dot: rgba(139, 146, 156, 0.16);
   --ob-pending: #e3b341;
-  --ob-pending-bg: rgba(227, 179, 65, 0.08);
+  --ob-pending-bg: rgba(227, 179, 65, 0.07);
 }
 :root[data-theme='light'] {
-  --sl-color-accent-low: #d3e5f6;
-  --sl-color-accent: #0f5fa8;
-  --sl-color-accent-high: #0b3f70;
-  --sl-color-white: #16202a;
-  --sl-color-gray-1: #22303e;
-  --sl-color-gray-2: #3a4958;
-  --sl-color-gray-3: #5d6c7c;
-  --sl-color-gray-4: #8a97a5;
-  --sl-color-gray-5: #c9d1da;
-  --sl-color-gray-6: #e3e8ee;
-  --sl-color-gray-7: #eef1f4;
-  --sl-color-black: #f7f9fb;
+  --sl-color-accent-low: #ffe6d8;
+  --sl-color-accent: #b84a12;
+  --sl-color-accent-high: #7a2e06;
+  --sl-color-white: #14171b;
+  --sl-color-gray-1: #23272d;
+  --sl-color-gray-2: #3d434b;
+  --sl-color-gray-3: #5f6670;
+  --sl-color-gray-4: #8d939c;
+  --sl-color-gray-5: #cfd3d9;
+  --sl-color-gray-6: #e7e9ed;
+  --sl-color-gray-7: #f1f2f5;
+  --sl-color-black: #fafafb;
 
-  --ob-start: #2e8b57;
-  --ob-task: #0f5fa8;
-  --ob-decision: #b7791f;
-  --ob-end: #3a4958;
-  --ob-canvas-dot: rgba(58, 73, 88, 0.14);
+  --ob-start: #23804f;
+  --ob-task: #b84a12;
+  --ob-decision: #94600f;
+  --ob-end: #3d434b;
+  --ob-canvas-dot: rgba(61, 67, 75, 0.13);
   --ob-pending: #94600f;
-  --ob-pending-bg: rgba(183, 121, 31, 0.08);
+  --ob-pending-bg: rgba(183, 121, 31, 0.07);
 }
 
 /* ---------- Reading type ---------- */
 .sl-markdown-content {
-  font-family: var(--ob-serif);
-  font-size: 1.075rem;
-  line-height: 1.68;
+  font-size: 1.125rem;
+  line-height: 1.75;
+  color: var(--sl-color-gray-1);
 }
-.sl-markdown-content :is(h1, h2, h3, h4, h5, h6, th, figcaption, .not-content) {
-  font-family: var(--sl-font);
-}
-.sl-markdown-content :is(h2, h3) { letter-spacing: -0.01em; }
-.sl-markdown-content h2 { font-stretch: 112%; font-weight: 750; }
-.sl-markdown-content table { font-family: var(--sl-font); font-size: 0.95rem; }
-.sl-markdown-content strong { font-weight: 650; }
-h1#_top { font-stretch: 115%; font-weight: 800; letter-spacing: -0.02em; }
-.sl-markdown-content :not(pre) > code { font-size: 0.86em; }
+.sl-markdown-content :is(h2, h3) { letter-spacing: -0.01em; font-weight: 600; }
+.sl-markdown-content h2 { font-size: 1.6rem; }
+.sl-markdown-content h4 { font-weight: 600; }
+.sl-markdown-content table { font-size: 0.95rem; line-height: 1.55; }
+.sl-markdown-content strong { font-weight: 600; color: var(--sl-color-white); }
+h1#_top { font-weight: 500; letter-spacing: -0.02em; font-size: clamp(2rem, 4.5vw, 2.6rem); line-height: 1.12; }
+.sl-markdown-content :not(pre) > code { font-size: 0.85em; }
+.site-title { font-weight: 600; letter-spacing: -0.01em; }
+.site-title img { height: 1.9rem; width: auto; }
+.sidebar-content { font-size: 0.95rem; }
 
 /* ---------- Recipe rail: sections hang off a workflow line ---------- */
 .rs {
@@ -190,12 +192,12 @@ h1#_top { font-stretch: 115%; font-weight: 800; letter-spacing: -0.02em; }
 .ob-opener { display: grid; grid-template-columns: auto 1fr; gap: 0 1.75rem; align-items: start; margin-bottom: 2rem; }
 .ob-opener-num {
   font-family: var(--sl-font);
-  font-stretch: 125%;
-  font-weight: 900;
+  font-weight: 500;
   font-size: clamp(5rem, 14vw, 8.5rem);
   line-height: 0.82;
   color: var(--sl-color-accent);
-  letter-spacing: -0.04em;
+  letter-spacing: -0.05em;
+  font-family: var(--sl-font-mono);
 }
 .ob-opener-list { margin: 0 !important; padding: 0; list-style: none; font-family: var(--sl-font); }
 .ob-opener-list li { padding: 0.35rem 0; border-bottom: 1px solid var(--sl-color-gray-6); margin: 0 !important; }

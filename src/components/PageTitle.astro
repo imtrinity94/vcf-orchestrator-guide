@@ -1,0 +1,29 @@
+---
+import Default from '@astrojs/starlight/components/PageTitle.astro';
+const route = Astro.locals.starlightRoute;
+const slug = route.id || '';
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const crumbs: { label: string; href?: string }[] = [{ label: 'Guide', href: `${base}/` }];
+const m = slug.match(/^chapter-(\d+)(?:\/recipes\/(\d+))?/);
+if (m) {
+  crumbs.push({ label: `Chapter ${m[1]}`, href: m[2] ? `${base}/chapter-${m[1]}/` : undefined });
+  if (m[2]) crumbs.push({ label: `${m[1]}.${parseInt(m[2], 10)}` });
+}
+---
+{slug && (
+  <nav class="ob-crumbs" aria-label="Breadcrumb">
+    {crumbs.map((c, i) => (
+      <>
+        {i > 0 && <span aria-hidden="true">/</span>}
+        {c.href ? <a href={c.href}>{c.label}</a> : <span class="cur">{c.label}</span>}
+      </>
+    ))}
+  </nav>
+)}
+<Default />
+<style>
+  .ob-crumbs { display: flex; flex-wrap: wrap; gap: 0.5rem; font-family: var(--sl-font-mono); font-size: 0.78rem; color: var(--sl-color-gray-3); margin-bottom: 0.9rem; }
+  .ob-crumbs a { color: var(--sl-color-gray-3); text-decoration: none; }
+  .ob-crumbs a:hover { color: var(--sl-color-accent); }
+  .ob-crumbs .cur { color: var(--sl-color-white); }
+</style>
