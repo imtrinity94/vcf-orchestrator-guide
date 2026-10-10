@@ -1,0 +1,71 @@
+---
+// The table of contents drawn as an Orchestrator workflow schema.
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const chapters = [
+  { n: 1, title: 'Getting Orchestrator running', note: 'Deploy, authenticate, first login', ready: true },
+  { n: 2, title: 'Configuring the appliance', note: 'Certificates, clustering, logging, backup' },
+  { n: 3, title: 'Visual programming', note: 'Schema elements, forms, errors, debugging' },
+  { n: 4, title: 'Scripting and environments', note: 'JavaScript, Python, Node.js, PowerShell' },
+  { n: 5, title: 'Working with plug-ins', note: 'REST, SSH, SQL, mail, AMQP' },
+  { n: 6, title: 'Content lifecycle', note: 'Packages, Git, version history' },
+  { n: 7, title: 'Advanced operations', note: 'REST API, policies, tags, locks' },
+  { n: 8, title: 'Orchestrator in VCF', note: 'vCenter, NSX, VCF Automation' },
+];
+---
+<div class="bf not-content">
+  <div class="bf-cap"><span class="bf-start" aria-hidden="true"></span>Start</div>
+  <ol class="bf-grid">
+    {chapters.map((c) => (
+      <li class:list={['bf-task', { 'bf-ready': c.ready }]}>
+        <a href={`${base}/chapter-${c.n}/`}>
+          <span class="bf-n">Chapter {c.n}</span>
+          <span class="bf-t">{c.title}</span>
+          <span class="bf-note">{c.ready ? c.note : `${c.note} · coming soon`}</span>
+        </a>
+      </li>
+    ))}
+  </ol>
+  <div class="bf-cap bf-cap-end"><span class="bf-end" aria-hidden="true"></span>End</div>
+</div>
+
+<style>
+  .bf {
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 10px;
+    padding: 1.5rem;
+    background-color: var(--sl-color-black);
+    background-image: radial-gradient(var(--ob-canvas-dot) 1.2px, transparent 1.2px);
+    background-size: 16px 16px;
+    font-family: var(--sl-font);
+  }
+  .bf-cap { display: flex; align-items: center; gap: 0.6rem; font-size: 0.85rem; font-weight: 600; color: var(--sl-color-gray-3); }
+  .bf-cap-end { justify-content: flex-end; margin-top: 1rem; }
+  .bf-start { width: 1.4rem; height: 1.4rem; border-radius: 50%; background: var(--ob-start); }
+  .bf-end { width: 1.4rem; height: 1.4rem; border-radius: 50%; border: 2.5px solid var(--ob-end); box-shadow: inset 0 0 0 4px var(--sl-color-black), inset 0 0 0 10px var(--ob-end); }
+  .bf-grid {
+    list-style: none; padding: 0; margin: 1rem 0 0;
+    display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1.1rem 1.6rem;
+  }
+  .bf-task { position: relative; }
+  .bf-task:not(:nth-child(4n))::after {
+    content: ''; position: absolute; top: 50%; right: -1.6rem; width: 1.6rem; height: 2px; background: var(--sl-color-gray-4);
+  }
+  .bf-task a {
+    display: flex; flex-direction: column; gap: 0.25rem; height: 100%;
+    padding: 0.8rem 0.9rem; border-radius: 6px; text-decoration: none;
+    background: var(--sl-color-black); border: 1.5px dashed var(--sl-color-gray-4);
+    color: var(--sl-color-gray-3);
+  }
+  .bf-ready a { border: 2px solid var(--ob-task); color: var(--sl-color-white); box-shadow: 0 0 0 4px var(--sl-color-accent-low); }
+  .bf-task a:hover { border-color: var(--sl-color-accent); }
+  .bf-task a:focus-visible { outline: 2px solid var(--sl-color-accent); outline-offset: 3px; }
+  .bf-n { font-size: 0.78rem; font-weight: 600; color: var(--sl-color-gray-3); }
+  .bf-ready .bf-n { color: var(--ob-task); }
+  .bf-t { font-weight: 700; font-size: 1rem; line-height: 1.25; font-stretch: 105%; }
+  .bf-note { font-size: 0.8rem; line-height: 1.35; color: var(--sl-color-gray-3); }
+  @media (max-width: 60rem) {
+    .bf-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .bf-task::after { display: none; }
+  }
+  @media (max-width: 34rem) { .bf-grid { grid-template-columns: 1fr; } .bf { padding: 1rem; } }
+</style>

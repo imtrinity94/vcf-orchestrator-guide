@@ -1,0 +1,61 @@
+---
+title: Registering your first vCenter
+description: Recipe 1.9 — connect the vSphere plug-in to a vCenter so its inventory appears in Orchestrator.
+sidebar:
+  label: 1.9 Registering a vCenter
+  order: 9
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+
+Most of the recipes later in the book act on vSphere objects. Before Orchestrator can see them, the **vSphere vCenter plug-in** needs to know which vCenters to talk to. Registering one is itself a workflow, which makes it a nice first run.
+
+<Recipe type="ready">
+
+- A working Orchestrator login with administrator rights.
+- A vCenter 9.x (here `vc01.vmw.lab`) and an account with enough privileges for the work you plan to automate.
+
+</Recipe>
+
+<Recipe type="how">
+
+1. In the Orchestrator Client, go to **Library** > **Workflows** and search for `add a vcenter`.
+2. Open **Add a vCenter Server instance** and click **Run**.
+3. On the **Set the vCenter Server instance properties** page, enter the vCenter address, `vc01.vmw.lab`.
+4. Open the **Set the connection properties** page:
+   - Choose whether to **create a session per user to the vCenter Server**. With per-user sessions, each workflow acts on vCenter as the person who ran it.
+   - Otherwise, enter the **username** and **password** of the shared account Orchestrator should use.
+5. Click **Run**. If vCenter's certificate isn't signed by a trusted authority, you're asked to accept it.
+6. Watch the run in **Activity** > **Workflow Runs**. A green tick means the vCenter is registered.
+7. Go to **Administration** > **Inventory** > **vSphere vCenter Server** and expand the new vCenter. You should see its data centers, clusters, hosts, and VMs.
+
+<Figure n="1.10" caption="The input form of the Add a vCenter Server instance workflow."
+  capture="Run dialog for <b>Add a vCenter Server instance</b>, <b>Set the connection properties</b> page, with <b>create a session per user</b> visible." />
+
+<Figure n="1.11" caption="The registered vCenter in the Inventory view."
+  capture="<b>Administration > Inventory > vSphere vCenter Server</b> with <code>vc01.vmw.lab</code> expanded to show a data center, cluster and VMs." />
+
+</Recipe>
+
+<Recipe type="works">
+
+The vSphere plug-in keeps a list of vCenter connections. The workflow you ran adds one, and from then on the plug-in maps vCenter's objects to Orchestrator types such as `VC:VirtualMachine`, `VC:HostSystem`, and `VC:ClusterComputeResource`. Those are the types you'll use as workflow inputs, and why a workflow form can show a VM picker that browses the live inventory.
+
+**Session per user** matters for auditing. With a shared account, vCenter records every change as that account. With per-user sessions, the token of the person who started the workflow is passed to vCenter, so vCenter's tasks and events show who really made the change. That works when Orchestrator and vCenter trust the same identity source, as with vSphere authentication or VCF SSO.
+
+</Recipe>
+
+<Recipe type="more">
+
+**Changing or removing a vCenter.** The same workflow folder contains **Update a vCenter Server instance** and **Remove a vCenter Server instance**.
+
+**Registering vCenter isn't the same as integrating with the vSphere Client.** This recipe lets Orchestrator *act on* vCenter. Putting Orchestrator workflows *into* the vSphere Client's right-click menu is a separate step (see recipe 1.4, There's more).
+
+</Recipe>
+
+<Recipe type="see">
+
+- Chapter 3, Visual programming, where you'll build your first workflow against this inventory.
+- Broadcom TechDocs: [Integrate VCF Operations orchestrator with vSphere](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/types-of-orchestrator-instances/integration-vcf-operations-orchestrator-with-vsphere-auth.html).
+
+</Recipe>

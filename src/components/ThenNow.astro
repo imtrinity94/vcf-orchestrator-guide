@@ -1,0 +1,8 @@
+---
+interface Props { then: string; now: string; thenLabel?: string; nowLabel?: string }
+const { then, now, thenLabel = 'Back in vRO 5.5–7', nowLabel = 'In Orchestrator 9.x' } = Astro.props;
+---
+<div class="ob-thennow not-content">
+  <div class="then"><span class="lbl">{thenLabel}</span><Fragment set:html={then} /></div>
+  <div class="now"><span class="lbl">{nowLabel}</span><Fragment set:html={now} /></div>
+</div>

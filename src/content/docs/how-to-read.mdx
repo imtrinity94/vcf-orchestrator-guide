@@ -1,0 +1,23 @@
+---
+title: How to read it
+description: Where to start depending on what you already know.
+---
+import Recipe from '../../components/Recipe.astro';
+
+Every recipe follows the same path, drawn down the left side of the page like a workflow schema:
+
+<Recipe type="ready">What you need before you start: access, accounts, versions, a lab object to work on.</Recipe>
+<Recipe type="how">Numbered steps. Words you see on screen are in **bold**, and things you type are in `code`.</Recipe>
+<Recipe type="works">What happened behind the scenes, so you can adapt the recipe instead of just repeating it.</Recipe>
+<Recipe type="more">Variations, pitfalls, and the questions people usually ask next.</Recipe>
+<Recipe type="see">Related recipes and official documentation.</Recipe>
+
+## Where to start
+
+- **New to Orchestrator?** Read chapter 1 in order, then chapter 3 (visual programming), then chapter 4 (scripting).
+- **Coming from vRO 7 or earlier?** Start with the introduction to chapter 1. It lists what's gone and what replaced it.
+- **Using Orchestrator through VCF Automation?** Read recipe 1.1, then jump to chapter 8.
+
+## What you need
+
+A VCF 9.x environment with either the Orchestrator embedded in VCF Automation, or a standalone Orchestrator appliance. Chapter 1 covers both. For the plug-in and infrastructure chapters, you'll also need a vCenter you're allowed to experiment on.

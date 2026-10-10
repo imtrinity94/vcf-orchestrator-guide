@@ -1,0 +1,113 @@
+---
+title: Opening the Orchestrator built into VCF Automation
+description: Recipe 1.1 — the fastest way to a working Orchestrator, using the instance embedded in VCF Automation 9.
+sidebar:
+  label: 1.1 The embedded Orchestrator
+  order: 1
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import Verify from '../../../../components/Verify.astro';
+
+If you already have VCF Automation, you already have Orchestrator. There's nothing to deploy or configure, so this is the quickest way to start learning. You can be building workflows in five minutes.
+
+<Recipe type="ready">
+
+- VCF Automation 9.x, deployed and reachable. In this book it's `auto.vmw.lab`.
+- A **provider administrator** account for part A, or an **organization administrator** account in a VM Apps organization for part B.
+- A browser. There's no client to install.
+
+</Recipe>
+
+<Recipe type="how">
+
+The embedded instance belongs to the **Provider Consumption organization**. Part A opens it there. Part B makes the same instance available to a VM Apps organization.
+
+#### A. Open it from the Provider Consumption organization
+
+1. Log in to the VCF Automation provider portal as a provider administrator.
+2. Go to **Infrastructure** > **Organizations** and select **Provider Consumption Org**.
+3. Click **Launch Organization Portal**. The organization portal opens in a new tab.
+4. Select the **Orchestrate** tab. You're now in the Orchestrator Client, logged in with your VCF Automation identity.
+
+<Figure n="1.2" caption="The Orchestrate tab in the Provider Consumption organization portal."
+  capture="VCF Automation 9.1, Provider Consumption organization portal, <b>Orchestrate</b> tab selected, showing the Orchestrator Client dashboard. Highlight the tab." />
+
+#### B. Add it to a VM Apps organization
+
+1. Log in to the VM Apps organization as an organization administrator.
+2. Go to **Infrastructure** > **Integrations** and click **Add Integration**.
+3. Select **Orchestration**.
+4. Enter a **Name** such as `Embedded Orchestrator`, and optionally a description.
+5. For the integration type, select **Embedded VCF Operations Orchestrator**, and click **Add**.
+6. Open the new integration and click **Start Data Collection**. This makes VCF Automation read the workflows Orchestrator holds.
+7. Select the **Orchestrator** tab at the top of the organization portal. If the organization has more than one Orchestrator integration, choose this one from the drop-down.
+
+<Figure n="1.3" caption="Adding the embedded Orchestrator as an integration in a VM Apps organization."
+  capture="VM Apps organization, <b>Infrastructure > Integrations > Add Integration > Orchestration</b> dialog, with <b>Embedded VCF Operations Orchestrator</b> selected." />
+
+#### C. Check that it's alive
+
+Orchestrator answers two simple REST calls you can use as a health check from any shell:
+
+```bash title="Any machine that can reach VCF Automation"
+curl -sk https://auto.vmw.lab/vco/api/about
+curl -sk https://auto.vmw.lab/vco/api/healthstatus
+```
+
+In our lab they returned:
+
+```json title="/vco/api/about"
+{
+  "version": "9.1.1.0.25643527",
+  "build-number": "25643527",
+  "build-date": "2026-07-31T01:54:48Z",
+  "api-version": "9.1.0.0",
+  "time-zone": "GMT"
+}
+```
+
+```json title="/vco/api/healthstatus"
+{
+  "state": "RUNNING",
+  "health-status": { "state": "OK" },
+  "instance-id": "auto.vmw.lab-vco-app-0",
+  "pending-restart-in": -1
+}
+```
+
+`"state": "RUNNING"` with health `OK` means the server is up and ready to run workflows.
+
+<Verify>Confirm both endpoints answer without a login on a fresh 9.1 deployment, and confirm the provider portal menu path in step A.</Verify>
+
+</Recipe>
+
+<Recipe type="works">
+
+VCF Automation runs as a set of containers on its own small Kubernetes cluster. Orchestrator is one of them: pods called `vco-app` in the `prelude` namespace. You can see that name in the `instance-id` above.
+
+Because the instance lives inside VCF Automation, everything that normally needs configuring is done for you:
+
+- **Authentication** goes through VCF Automation. Logins are tied to the organization the instance belongs to, which is why you always reach it through an organization portal.
+- **Licensing** comes from VCF Automation. Orchestrator 9.x never asks for a licence key.
+- **Roles** come from your VCF Automation roles. Organization administrators get Orchestrator administrator rights by default. Recipe 1.3 covers the role model.
+
+The trade-off is that the embedded Orchestrator shares CPU and memory with the rest of VCF Automation. You can't resize its Java heap, which you can on a standalone appliance. For that reason, Broadcom recommends the embedded instance mainly for the Provider Consumption organization, and a standalone appliance (recipe 1.2) wherever the load is heavy. The embedded instance isn't supported for All Apps organizations.
+
+</Recipe>
+
+<Recipe type="more">
+
+**A 403 error when opening the Orchestrate tab.** If the tab fails with a bare `403` and the Orchestrator log shows `OrgIdMismatchException`, the login reached Orchestrator with the wrong organization context. Broadcom describes the cause and fix in [KB 447933](https://knowledge.broadcom.com/external/article/447933). Restarting the `vco-app` pods and clearing the browser cache resolves it.
+
+**Publishing workflows to All Apps organizations.** The embedded instance can't be integrated with an All Apps organization. The provider can still publish its workflows as catalog items to those organizations. Chapter 8 covers this.
+
+</Recipe>
+
+<Recipe type="see">
+
+- [1.3 Choosing an authentication provider](../03-choosing-authentication/), for how roles and groups map to VCF Automation.
+- [1.7 Finding your way around the Orchestrator Client](../07-client-tour/).
+- Broadcom TechDocs: [Getting Started with VCF Operations orchestrator Integrations](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/types-of-orchestrator-instances.html).
+
+</Recipe>

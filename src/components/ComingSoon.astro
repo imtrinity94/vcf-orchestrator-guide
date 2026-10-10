@@ -1,0 +1,8 @@
+---
+interface Props { topics: string[] }
+const { topics } = Astro.props;
+---
+<div class="ob-soon">
+  <h3>This chapter is being written. Planned recipes:</h3>
+  <ul>{topics.map((t) => <li>{t}</li>)}</ul>
+</div>

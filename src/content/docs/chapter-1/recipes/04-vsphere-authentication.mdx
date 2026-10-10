@@ -1,0 +1,75 @@
+---
+title: Authenticating with vSphere
+description: Recipe 1.4 — use vCenter Single Sign-On as Orchestrator's authentication provider.
+sidebar:
+  label: 1.4 vSphere authentication
+  order: 4
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+
+vSphere authentication is the classic setup: infrastructure teams log in to Orchestrator with the same accounts they use for vCenter. It's the most common choice when there's no VCF Automation in the picture.
+
+<Recipe type="ready">
+
+- A deployed appliance (recipe 1.2) with SSH or console access as `root`.
+- vCenter 9.x and an SSO administrator account, typically `administrator@vsphere.local`.
+- A decision on who administers Orchestrator. You'll name an SSO group, and its members become Orchestrator administrators.
+
+</Recipe>
+
+<Recipe type="how">
+
+1. In the vSphere Client, go to **Menu** > **Administration** > **Single Sign On** > **Users and Groups** and open the **Groups** tab.
+2. Click **Add**, enter a group name such as `OrchestratorAdmins`, keep the domain `vsphere.local`, add yourself under **Add Members**, and click **Add**. Using the built-in `Administrators` group also works, but a dedicated group is easier to audit.
+
+<Figure n="1.6" caption="Creating a dedicated SSO group for Orchestrator administrators."
+  capture="vSphere Client 9, <b>Administration > Single Sign On > Users and Groups > Groups > Add</b> with the group name <code>OrchestratorAdmins</code> and one member." />
+
+3. SSH to the appliance as `root` and set vSphere as the provider. You'll be asked for the SSO administrator's password and to accept vCenter's certificate:
+
+```bash title="root@vco01"
+vracli vro authentication set -p vsphere \
+  --hostname https://vc01.vmw.lab \
+  --username administrator@vsphere.local \
+  --tenant vsphere.local \
+  --admin-group OrchestratorAdmins \
+  --admin-group-domain vsphere.local
+```
+
+4. Check the staged values:
+
+```bash title="root@vco01"
+vracli vro authentication
+```
+
+5. Redeploy the Orchestrator services so the change takes effect. This takes several minutes:
+
+```bash title="root@vco01"
+/opt/scripts/deploy.sh
+```
+
+6. Browse to `https://vco01.vmw.lab`, open the client, and log in as a member of `OrchestratorAdmins`.
+
+</Recipe>
+
+<Recipe type="works">
+
+Orchestrator registers itself with vCenter's Single Sign-On service, using the administrator account you supplied. From then on, every login is checked by SSO, and the token SSO issues is what Orchestrator uses to identify you.
+
+The `--admin-group` decides who gets full rights. vSphere authentication has no other roles and no groups: you're either an Orchestrator administrator or a user without a role, who can only see your own runs and answer user interactions. If you need designers, viewers, and group permissions, use a VCF Automation organization (recipe 1.5) instead.
+
+</Recipe>
+
+<Recipe type="more">
+
+**Running workflows from the vSphere Client.** With vSphere authentication you can also bring Orchestrator into the vSphere Client, so that workflows show up in the right-click menu of inventory objects. Enable it with `vracli capabilities vcoin --enable`, run `/opt/scripts/deploy.sh`, then run the **Register VCF Operations Orchestrator Plug-in for vSphere Web Client Extension** workflow. Only one vCenter can host the extension. Chapter 8 covers it fully.
+
+</Recipe>
+
+<Recipe type="see">
+
+- [1.9 Registering your first vCenter](../09-register-vcenter/), the natural next step with vSphere authentication.
+- Broadcom TechDocs: [Integrate VCF Operations orchestrator with vSphere](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/types-of-orchestrator-instances/integration-vcf-operations-orchestrator-with-vsphere-auth.html).
+
+</Recipe>

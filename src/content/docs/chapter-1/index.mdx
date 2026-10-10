@@ -1,0 +1,91 @@
+---
+title: Getting Orchestrator running
+description: Chapter 1 — where Orchestrator lives in VCF 9, how to deploy it, how to authenticate it, and your first steps in the client.
+sidebar:
+  label: Introduction
+---
+import Opener from '../../../components/Opener.astro';
+import NameTrail from '../../../components/NameTrail.astro';
+import ThenNow from '../../../components/ThenNow.astro';
+import Figure from '../../../components/Figure.astro';
+
+<Opener n={1} recipes={[
+  { title: 'Opening the Orchestrator built into VCF Automation', href: 'recipes/01-embedded-orchestrator/' },
+  { title: 'Deploying the standalone appliance', href: 'recipes/02-deploying-the-appliance/' },
+  { title: 'Choosing an authentication provider', href: 'recipes/03-choosing-authentication/' },
+  { title: 'Authenticating with vSphere', href: 'recipes/04-vsphere-authentication/' },
+  { title: 'Authenticating with a VCF Automation organization', href: 'recipes/05-vcf-automation-authentication/' },
+  { title: 'Authenticating with VCF SSO', href: 'recipes/06-vcf-sso-authentication/' },
+  { title: 'Finding your way around the Orchestrator Client', href: 'recipes/07-client-tour/' },
+  { title: 'Configuring Orchestrator from the command line', href: 'recipes/08-command-line/' },
+  { title: 'Registering your first vCenter', href: 'recipes/09-register-vcenter/' },
+]} />
+
+Orchestrator is a workflow engine. You draw a process as a schema of steps, decisions, and loops. Each step is either a small piece of script or another workflow. Orchestrator then runs that process against real systems such as vCenter, NSX, a REST API, an SSH host, or a database, through **plug-ins**. Every step is saved to its database as it runs, so a long process survives a restart and can wait for days for a human to approve something.
+
+This chapter gets you from nothing to a working Orchestrator you can log in to, with a vCenter registered and ready for the recipes in later chapters.
+
+## One product, many names
+
+If you search the web for help, you'll find Orchestrator under at least five names. They're all the same product, and most of what you read about workflows, actions, and plug-ins still applies.
+
+<NameTrail />
+
+You'll still see the old names inside the product. The REST API lives under `/vco/api`, the Kubernetes pods are called `vco-app`, and the command-line tool is `vracli`. In this book we just say **Orchestrator**.
+
+## Where Orchestrator lives in VCF 9
+
+In VCF 9 you meet Orchestrator in one of two forms:
+
+| | Embedded in VCF Automation | Standalone appliance |
+|---|---|---|
+| **What it is** | An Orchestrator instance that comes preinstalled and preconfigured inside VCF Automation | A separate virtual appliance you deploy from an OVA |
+| **Where you open it** | The **Orchestrate** tab of the Provider Consumption organization portal, or the **Orchestrator** tab in a VM Apps organization that has it added as an integration | Its own address, `https://<orchestrator-fqdn>`, or from inside a VCF Automation organization it's integrated with |
+| **Who it's for** | Provider administrators, and VM Apps organizations that share it | vSphere-only shops, VCF Operations integration, All Apps organizations, and any busy environment |
+| **Authentication** | Handled by VCF Automation | You choose: vSphere, a VCF Automation organization, or VCF SSO |
+| **Recipe** | [1.1](recipes/01-embedded-orchestrator/) | [1.2](recipes/02-deploying-the-appliance/) to [1.6](recipes/06-vcf-sso-authentication/) |
+
+Broadcom recommends using the embedded instance mainly for the Provider Consumption organization, and integrating VM Apps and All Apps organizations with standalone instances. The embedded instance isn't supported for All Apps organizations at all.
+
+<Figure n="1.1" caption="A VCF 9 environment with the embedded Orchestrator in VCF Automation and a standalone appliance authenticated against vSphere."
+  capture="Diagram, to be drawn: VCF Automation (Provider Consumption org with embedded Orchestrator, a VM Apps org, an All Apps org) beside a standalone Orchestrator appliance, with arrows to the three authentication providers and out through plug-ins to vCenter, NSX and REST hosts." />
+
+## What changed since vRO 7
+
+If you learned Orchestrator in the vCO or vRO 7 days, most of the ideas you know still hold. The way you install, configure, and log in to it has changed completely.
+
+<ThenNow
+  then="Install on Windows, enable the copy bundled with vCenter, or deploy a SUSE-based appliance."
+  now="Deploy a Photon OS appliance that runs Orchestrator as Kubernetes pods, or use the instance embedded in VCF Automation. The Windows and vCenter-bundled versions are gone." />
+
+<ThenNow
+  then="Configure everything in the Orchestrator Configuration web page on port 8283, later called Control Center."
+  now="Configure the appliance from its root shell with <code>vracli</code>. Day-to-day settings such as roles, groups, Git, and environments live in the Orchestrator Client." />
+
+<ThenNow
+  then="Log in through LDAP, Active Directory, or vCenter Single Sign-On."
+  now="Pick one authentication provider: vSphere, a VCF Automation organization, or VCF SSO (the VCF Identity Broker)." />
+
+<ThenNow
+  then="Enter a licence key, or inherit vCenter's."
+  now="The licence comes from the authentication provider automatically. You never enter a key." />
+
+<ThenNow
+  then="Point Orchestrator at an embedded or external SQL Server, Oracle, or PostgreSQL database."
+  now="A built-in PostgreSQL database is the only option, and you don't manage it yourself." />
+
+<ThenNow
+  then="Build workflows in a Java desktop client launched through Java Web Start, and write all scripts in JavaScript."
+  now="Build workflows in the browser-based Orchestrator Client, and write scripts in JavaScript, Python, Node.js, or PowerShell." />
+
+## What we used for this chapter
+
+The recipes were written against **VCF 9.1** with Orchestrator **9.1.1** (build 25643527). The lab domain is `vmw.lab`. The names below are used throughout, so substitute your own:
+
+| Example name | What it is |
+|---|---|
+| `auto.vmw.lab` | VCF Automation, with its embedded Orchestrator |
+| `vco01.vmw.lab` | A standalone Orchestrator appliance |
+| `vc01.vmw.lab` | A vCenter instance |
+
+Upgrades to 9.x are supported only from Aria Automation Orchestrator **8.18.1**. If you run something older, upgrade to 8.18.1 first. Upgrading isn't covered in this chapter.

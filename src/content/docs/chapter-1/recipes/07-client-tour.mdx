@@ -1,0 +1,70 @@
+---
+title: Finding your way around the Orchestrator Client
+description: Recipe 1.7 — a guided tour of the browser-based Orchestrator Client and where everything lives.
+sidebar:
+  label: 1.7 Client tour
+  order: 7
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import Verify from '../../../../components/Verify.astro';
+
+Everything you build in Orchestrator, you build in the **Orchestrator Client**. It's the same client whether you open it through VCF Automation or straight from a standalone appliance. This recipe walks the menu once, so later chapters can just say "go to **Library** > **Actions**".
+
+<Recipe type="ready">
+
+A working login from recipe 1.1 (embedded) or recipes 1.3–1.6 (standalone).
+
+</Recipe>
+
+<Recipe type="how">
+
+1. Open the client: the **Orchestrate** or **Orchestrator** tab in VCF Automation, or `https://vco01.vmw.lab` for a standalone appliance.
+2. Start on the **Dashboard**. It summarises recent workflow runs, how many are waiting for input or failed, and the workflows you use most.
+3. Open **Library**. This is where you build things:
+   - **Workflows**: the visual, multi-step processes. Chapter 3.
+   - **Actions**: reusable functions, in JavaScript, Python, Node.js, or PowerShell. Chapter 4.
+   - **Policies**: event-driven triggers. Chapter 7.
+4. Open **Activity**. This is where you watch things run:
+   - **Workflow Runs**: every run, with its logs, variables, and debug view.
+   - **Scheduled**: workflows set to run later or on a schedule.
+   - **Waiting for Input**: runs paused on a user interaction.
+5. Open **Assets**. This is the content your workflows depend on:
+   - **Configurations**: shared settings, the modern home of configuration elements.
+   - **Resources**: files stored inside Orchestrator, such as templates and scripts.
+   - **Packages**: bundles of content to move between Orchestrator instances. Chapter 6.
+   - **Environments**: the runtime images for Python, Node.js, and PowerShell actions.
+6. Open **Administration**. This is where the instance is managed:
+   - **Inventory**: the objects each plug-in exposes, such as vCenters, VMs, and REST hosts.
+   - **Audit Logs**, **Git Repositories**, **Groups**, and **Roles**. Which of these you see depends on your authentication provider and role.
+7. Use the search box at the top of any list. Most lists filter by name and by **tag**, which is the quickest way to find content in a busy instance.
+
+<Figure n="1.9" caption="The Orchestrator Client, with the navigation pane expanded."
+  capture="Orchestrator Client 9.1 <b>Dashboard</b> with the left navigation fully expanded: Library, Activity, Assets, Administration." />
+
+<Verify>Walk the 9.1 navigation and confirm the exact menu names and the order of items under Assets and Administration.</Verify>
+
+</Recipe>
+
+<Recipe type="works">
+
+The client is a web application served by the Orchestrator server itself, and it talks to the same REST API (`/vco/api`) you can call from scripts. Anything you can click, you can automate. Chapter 7 shows how.
+
+Content you see is filtered by your role. Administrators and viewers see everything. A **workflow designer** sees system content, their own content, and the content of the groups they belong to. Users without a role only see their own runs and the user interactions waiting for them.
+
+</Recipe>
+
+<Recipe type="more">
+
+**Folders or tags?** Workflows and actions can be organised in folders and labelled with tags. Folders give a familiar tree, while tags let one workflow appear in several views. Most teams use folders for ownership and tags for discovery.
+
+**Version history.** Every workflow, action, and configuration keeps a version history you can compare and restore from. It's a safety net that the Java client never had in such a usable form. Chapter 6.
+
+</Recipe>
+
+<Recipe type="see">
+
+- [1.9 Registering your first vCenter](../09-register-vcenter/), to put something in the **Inventory**.
+- Broadcom TechDocs: [Setting up VCF Operations orchestrator](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/setting-up-the-vrealize-orchestrator-client.html).
+
+</Recipe>

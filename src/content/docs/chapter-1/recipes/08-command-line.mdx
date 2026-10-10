@@ -1,0 +1,98 @@
+---
+title: Configuring Orchestrator from the command line
+description: Recipe 1.8 — the vracli commands that replace Control Center on a standalone appliance.
+sidebar:
+  label: 1.8 Command-line configuration
+  order: 8
+---
+import Recipe from '../../../../components/Recipe.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+
+On a standalone appliance, the server-level settings that used to live in Control Center are now set from the appliance shell with `vracli vro`. This recipe gathers the commands you'll actually use.
+
+<Recipe type="ready">
+
+- A standalone appliance with SSH access as `root`. These commands don't apply to the instance embedded in VCF Automation.
+
+</Recipe>
+
+<Recipe type="how">
+
+1. **See where you are.** Show the server's version and state. Add `-d` to include the health check:
+
+```bash title="root@vco01"
+vracli vro info -d
+```
+
+2. **List system properties.** System properties are the switches that change Orchestrator's default behaviour. This prints them as JSON:
+
+```bash title="root@vco01"
+vracli vro properties
+vracli vro properties advanced   # the commonly used ones, with descriptions
+```
+
+3. **Set or remove a property.** Setting a property restarts the server unless you add `-n`:
+
+```bash title="root@vco01"
+vracli vro properties set -k com.vmware.o11n.property -v true
+vracli vro properties remove -k com.vmware.o11n.property
+```
+
+4. **Turn on an extension.** Extensions are optional server features. For example, token replay records the values of scripting variables to help debugging:
+
+```bash title="root@vco01"
+vracli vro extensions                      # list them
+vracli vro extensions tokenreplay activate
+vracli vro extensions tokenreplay list
+vracli vro extensions tokenreplay set -k recordScripting -v true
+```
+
+5. **Change logging.** Raise the server log level, or keep more scripting log history:
+
+```bash title="root@vco01"
+vracli vro logs                            # current settings
+vracli vro logs configure -l DEBUG -sl INFO -sc 10 -ss 20
+```
+
+6. **Get out of trouble.** Cancel runaway runs, or pause every scheduled task:
+
+```bash title="root@vco01"
+vracli vro cancel executions               # every active run
+vracli vro cancel workflow <workflow-id>   # runs of one workflow
+vracli vro cancel tasks                    # suspend all scheduled tasks
+```
+
+7. **Check trusted certificates.**
+
+```bash title="root@vco01"
+vracli vro keystore list
+```
+
+</Recipe>
+
+<Recipe type="works">
+
+`vracli` is the appliance's management tool, inherited from the VMware Aria Automation appliance (hence the `vra` in the name). The `vro` subcommand talks to the Orchestrator server running in the `vco-app` pods and changes its stored configuration. Most changes trigger a restart of the Orchestrator server, which is why properties have a `--noRestart` option for when you want to batch several changes.
+
+Every `vracli vro` command logs to `/services-logs/prelude/vco-app/file-logs/vco-server-app_cfg-cli.log`, so check that file first when one fails.
+
+<ThenNow
+  then="Open Control Center on port 8283, find the right page (System Properties, Logs, Troubleshooting, Certificates), and click Save."
+  now="SSH in and run <code>vracli vro properties</code>, <code>logs</code>, <code>cancel</code>, or <code>keystore</code>. Because it's a shell, you can script it." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**SSH is off?** If you didn't enable SSH during deployment, you can run every command from the VM console, or turn SSH on later. Chapter 2.
+
+**`cancel executions` is a blunt instrument.** It stops every running workflow, including healthy ones. Prefer cancelling a single run from **Activity** > **Workflow Runs** when you can.
+
+</Recipe>
+
+<Recipe type="see">
+
+- [1.3 Choosing an authentication provider](../03-choosing-authentication/), for `vracli vro authentication`.
+- Broadcom TechDocs: [Configuring VCF Operations orchestrator with the command line interface](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/setting-up-the-vrealize-orchestrator-client/configuring-vcf-operations-orchestrator/additional-command-line-interface-configuration-options.html).
+
+</Recipe>

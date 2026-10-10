@@ -1,0 +1,221 @@
+/* ---------- Tokens ---------- */
+:root {
+  --sl-font: 'Archivo', system-ui, sans-serif;
+  --sl-font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --ob-serif: 'Source Serif 4', Georgia, serif;
+
+  /* dark (default) */
+  --sl-color-accent-low: #10304f;
+  --sl-color-accent: #4ba3f0;
+  --sl-color-accent-high: #cfe6fb;
+  --sl-color-white: #ffffff;
+  --sl-color-gray-1: #e6ecf2;
+  --sl-color-gray-2: #c2ccd8;
+  --sl-color-gray-3: #8494a8;
+  --sl-color-gray-4: #4a5a6e;
+  --sl-color-gray-5: #2b394a;
+  --sl-color-gray-6: #1a2533;
+  --sl-color-black: #0e1620;
+
+  --ob-start: #4cc38a;
+  --ob-task: #4ba3f0;
+  --ob-decision: #e3b341;
+  --ob-end: #9aa8b8;
+  --ob-canvas-dot: rgba(132, 148, 168, 0.18);
+  --ob-pending: #e3b341;
+  --ob-pending-bg: rgba(227, 179, 65, 0.08);
+}
+:root[data-theme='light'] {
+  --sl-color-accent-low: #d3e5f6;
+  --sl-color-accent: #0f5fa8;
+  --sl-color-accent-high: #0b3f70;
+  --sl-color-white: #16202a;
+  --sl-color-gray-1: #22303e;
+  --sl-color-gray-2: #3a4958;
+  --sl-color-gray-3: #5d6c7c;
+  --sl-color-gray-4: #8a97a5;
+  --sl-color-gray-5: #c9d1da;
+  --sl-color-gray-6: #e3e8ee;
+  --sl-color-gray-7: #eef1f4;
+  --sl-color-black: #f7f9fb;
+
+  --ob-start: #2e8b57;
+  --ob-task: #0f5fa8;
+  --ob-decision: #b7791f;
+  --ob-end: #3a4958;
+  --ob-canvas-dot: rgba(58, 73, 88, 0.14);
+  --ob-pending: #94600f;
+  --ob-pending-bg: rgba(183, 121, 31, 0.08);
+}
+
+/* ---------- Reading type ---------- */
+.sl-markdown-content {
+  font-family: var(--ob-serif);
+  font-size: 1.075rem;
+  line-height: 1.68;
+}
+.sl-markdown-content :is(h1, h2, h3, h4, h5, h6, th, figcaption, .not-content) {
+  font-family: var(--sl-font);
+}
+.sl-markdown-content :is(h2, h3) { letter-spacing: -0.01em; }
+.sl-markdown-content h2 { font-stretch: 112%; font-weight: 750; }
+.sl-markdown-content table { font-family: var(--sl-font); font-size: 0.95rem; }
+.sl-markdown-content strong { font-weight: 650; }
+h1#_top { font-stretch: 115%; font-weight: 800; letter-spacing: -0.02em; }
+.sl-markdown-content :not(pre) > code { font-size: 0.86em; }
+
+/* ---------- Recipe rail: sections hang off a workflow line ---------- */
+.rs {
+  position: relative;
+  padding-left: 3rem;
+  padding-bottom: 1.75rem;
+  margin-top: 0 !important;
+}
+.rs::before {
+  content: '';
+  position: absolute;
+  left: 0.9rem;
+  top: 2.1rem;
+  bottom: 0;
+  width: 2px;
+  background: var(--sl-color-gray-5);
+}
+.rs-end::before { display: none; }
+.rs-node {
+  position: absolute;
+  left: 0;
+  top: 0.15rem;
+  width: 1.85rem;
+  height: 1.85rem;
+  display: grid;
+  place-items: center;
+}
+.rs-node svg { width: 100%; height: 100%; overflow: visible; }
+.sl-markdown-content .rs > .rs-title {
+  font-family: var(--sl-font);
+  font-size: 1.15rem;
+  font-weight: 700;
+  margin: 0 0 0.6rem;
+  line-height: 1.85rem;
+}
+.rs-body > :first-child { margin-top: 0; }
+
+/* numbered steps inside "How to do it" look like task nodes on the line */
+.rs-task ol { counter-reset: step; list-style: none; padding-left: 0; }
+.rs-task ol > li { counter-increment: step; position: relative; padding-left: 2.4rem; margin-top: 0.7rem; }
+.rs-task ol > li::before {
+  content: counter(step);
+  position: absolute;
+  left: 0;
+  top: 0.15rem;
+  min-width: 1.6rem;
+  height: 1.45rem;
+  border: 1.5px solid var(--ob-task);
+  border-radius: 4px;
+  font-family: var(--sl-font);
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--ob-task);
+  display: grid;
+  place-items: center;
+}
+
+/* ---------- Figures ---------- */
+.ob-figure { margin: 1.75rem 0; }
+.ob-figure img {
+  border: 1px solid var(--sl-color-gray-5);
+  border-radius: 6px;
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.ob-figure figcaption {
+  font-size: 0.88rem;
+  color: var(--sl-color-gray-3);
+  margin-top: 0.6rem;
+  line-height: 1.45;
+}
+.ob-figure figcaption b { color: var(--sl-color-gray-2); font-weight: 650; }
+.ob-shot {
+  border: 1.5px dashed var(--ob-pending);
+  background: var(--ob-pending-bg);
+  border-radius: 6px;
+  padding: 1.1rem 1.25rem;
+  font-family: var(--sl-font);
+  font-size: 0.92rem;
+  line-height: 1.5;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.25rem 0.9rem;
+  aspect-ratio: auto;
+}
+.ob-shot svg { grid-row: span 2; width: 1.6rem; height: 1.6rem; color: var(--ob-pending); margin-top: 0.1rem; }
+.ob-shot-head { font-weight: 700; color: var(--ob-pending); }
+.ob-shot-what { color: var(--sl-color-gray-2); margin: 0 !important; }
+.ob-shot-what code { font-size: 0.85em; }
+
+/* ---------- Then / Now ---------- */
+.ob-thennow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border: 1px solid var(--sl-color-gray-5);
+  border-radius: 6px;
+  overflow: hidden;
+  font-family: var(--sl-font);
+  font-size: 0.93rem;
+  line-height: 1.5;
+}
+.ob-thennow > div { padding: 0.9rem 1.1rem; margin: 0 !important; }
+.ob-thennow .then { background: var(--sl-color-gray-6); color: var(--sl-color-gray-2); }
+.ob-thennow .now { border-left: 3px solid var(--ob-start); }
+.ob-thennow .lbl { display: block; font-weight: 700; font-size: 0.8rem; margin-bottom: 0.3rem; color: var(--sl-color-gray-3); }
+.ob-thennow .now .lbl { color: var(--ob-start); }
+@media (max-width: 40rem) {
+  .ob-thennow { grid-template-columns: 1fr; }
+  .ob-thennow .now { border-left: 0; border-top: 3px solid var(--ob-start); }
+}
+
+/* ---------- Verify marker ---------- */
+.ob-verify {
+  border-left: 3px solid var(--ob-pending);
+  background: var(--ob-pending-bg);
+  padding: 0.55rem 0.9rem;
+  font-family: var(--sl-font);
+  font-size: 0.88rem;
+  border-radius: 0 4px 4px 0;
+}
+.ob-verify b { color: var(--ob-pending); }
+
+/* ---------- Chapter opener ---------- */
+.ob-opener { display: grid; grid-template-columns: auto 1fr; gap: 0 1.75rem; align-items: start; margin-bottom: 2rem; }
+.ob-opener-num {
+  font-family: var(--sl-font);
+  font-stretch: 125%;
+  font-weight: 900;
+  font-size: clamp(5rem, 14vw, 8.5rem);
+  line-height: 0.82;
+  color: var(--sl-color-accent);
+  letter-spacing: -0.04em;
+}
+.ob-opener-list { margin: 0 !important; padding: 0; list-style: none; font-family: var(--sl-font); }
+.ob-opener-list li { padding: 0.35rem 0; border-bottom: 1px solid var(--sl-color-gray-6); margin: 0 !important; }
+.ob-opener-list a { text-decoration: none; color: var(--sl-color-white); font-weight: 550; }
+.ob-opener-list a:hover { color: var(--sl-color-accent); }
+.ob-opener-list span { color: var(--sl-color-gray-3); font-weight: 500; display: inline-block; min-width: 2.4rem; }
+@media (max-width: 40rem) { .ob-opener { grid-template-columns: 1fr; gap: 1rem; } }
+
+/* ---------- Coming soon ---------- */
+.ob-soon {
+  border: 1px solid var(--sl-color-gray-5);
+  border-radius: 8px;
+  padding: 1.5rem;
+  background-image: radial-gradient(var(--ob-canvas-dot) 1px, transparent 1px);
+  background-size: 14px 14px;
+  font-family: var(--sl-font);
+}
+.ob-soon h3 { margin-top: 0 !important; font-size: 1rem !important; color: var(--sl-color-gray-3); font-weight: 600; }
+.ob-soon ul { margin-bottom: 0 !important; }
+
+/* home page: the hero carries the title, so hide Starlight's page title bar */
+body:has(.home-hero) .content-panel:first-of-type:has(h1#_top) { display: none; }
+@media (max-width: 40rem) { .rs { padding-left: 2.6rem; } }

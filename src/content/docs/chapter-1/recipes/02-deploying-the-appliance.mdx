@@ -1,0 +1,88 @@
+---
+title: Deploying the standalone appliance
+description: Recipe 1.2 — deploy the VCF Operations Orchestrator OVA into vSphere and confirm it's ready to authenticate.
+sidebar:
+  label: 1.2 Deploying the appliance
+  order: 2
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+
+A standalone appliance gives you an Orchestrator you fully control. You can size it, cluster it, and point it at whichever authentication provider you need. This recipe deploys it. The next four recipes connect it to an authentication provider, and you can't log in until you do.
+
+<Recipe type="ready">
+
+- **vCenter 9 or later** to deploy into, and an account that can deploy OVF templates.
+- Room for the appliance: **4 vCPUs, 12 GB of memory, and 200 GB of disk**. Don't reduce the memory. The Orchestrator server needs at least 8 GB free inside the appliance.
+- A static **IPv4** address, plus a **forward and reverse DNS record** for the appliance's FQDN. Create both before you start. Most failed deployments come down to DNS.
+- The appliance `.ova` file, downloaded from the Broadcom Support Portal under **My Downloads** > **VMware Cloud Foundation** > **VMware Cloud Foundation Operations Orchestrator**. You need a VCF entitlement to see it.
+- Two private network ranges of at least `/22` that don't clash with your own network. The appliance uses them internally for Kubernetes (see step 11).
+
+</Recipe>
+
+<Recipe type="how">
+
+1. Log in to the vSphere Client as an administrator.
+2. Right-click a data center, cluster, resource pool, or host and select **Deploy OVF Template**.
+3. Choose **Local file**, browse to the `.ova`, and click **Next**.
+4. Enter a virtual machine name such as `vco01`, choose a folder, and click **Next**.
+5. Select the cluster, host, or resource pool to run the appliance on, and click **Next**.
+6. Review the details and click **Next**.
+7. Accept the licence agreement and click **Next**.
+8. Choose a datastore and a disk format. **Thin Provision** is fine for a lab. For production, use thick provisioning on redundant storage. Click **Next**.
+9. Select the port group for the appliance's network and click **Next**.
+10. On **Customize template**, fill in the appliance's identity:
+    - the **root password**
+    - the **hostname**, as a fully qualified name such as `vco01.vmw.lab`
+    - the IPv4 **address**, **netmask**, **gateway**, **DNS servers**, and **domain**
+    - optionally, **SSH access**. Turn it on if you plan to follow recipes 1.3 to 1.6 and 1.8 over SSH rather than the VM console.
+
+<Figure n="1.4" caption="The Customize template page, where the appliance gets its hostname, network, and root password."
+  capture="vSphere Client, Deploy OVF Template, <b>Customize template</b> step for the 9.1 appliance, with the hostname, network properties and SSH option visible. Blur the password fields." />
+
+11. Check the two **Kubernetes** properties on the same page. They default to `10.244.0.0/22` for the internal cluster network and `10.244.4.0/22` for internal services. If either range is already used anywhere the appliance needs to reach, change it. Each must be a `/22` or larger, because the internal network needs room for at least 1,024 addresses.
+12. Click **Next**, review the summary, and click **Finish**.
+13. Power on the virtual machine once the deployment task completes. The first boot sets up the internal Kubernetes cluster and starts the Orchestrator pods. Give it 15–20 minutes.
+14. Open the VM console, or SSH in as `root`, and confirm DNS both ways:
+
+```bash title="root@vco01"
+nslookup vco01.vmw.lab     # must return the appliance's IP
+nslookup 192.168.10.50     # must return vco01.vmw.lab
+```
+
+<Figure n="1.5" caption="The appliance console after a successful first boot."
+  capture="VM console of a freshly booted 9.1 appliance, showing the welcome screen with the correct FQDN, not <code>photon-machine</code>." />
+
+</Recipe>
+
+<Recipe type="works">
+
+The appliance is Photon OS running a single-node Kubernetes cluster. Orchestrator, its PostgreSQL database, and helper services such as the script runners for Python, Node.js, and PowerShell all run as containers on that cluster. That's why the appliance needs the two internal network ranges, and why it's heavier than the old vRO appliances (which you could run in 3 GB of memory).
+
+The first boot reads the values you typed on **Customize template** and builds everything around the appliance's **FQDN**. Certificates, the internal cluster, and the address Orchestrator advertises to other systems all use it. If the console shows the hostname `photon-machine`, the appliance didn't get a valid FQDN. Fix your DNS or OVF values and redeploy rather than trying to patch it.
+
+At this point Orchestrator is running, but nobody can log in. It has no users of its own. Every login is delegated to an **authentication provider** that you choose in the next recipe. The licence comes from that provider too.
+
+<ThenNow
+  then="Once the appliance booted, you opened <code>https://appliance:8283</code>, logged in as <code>vmware</code>, and clicked through the configuration pages, including a licence key."
+  now="Once the appliance boots, you SSH in as <code>root</code> and run one <code>vracli</code> command to set the authentication provider. There's no configuration website and no licence key." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**Need more memory for big workloads?** On a standalone appliance you can raise the Orchestrator server's Java heap by adding RAM to the VM and creating a custom resource profile. Chapter 2 covers it.
+
+**Deployment problems.** Broadcom keeps a troubleshooting list for the appliance in [KB 93142](https://knowledge.broadcom.com/external/article/93142).
+
+**Clustering.** For high availability you can deploy three appliances and join them into a cluster behind a load balancer. Chapter 2 covers it.
+
+</Recipe>
+
+<Recipe type="see">
+
+- Next: [1.3 Choosing an authentication provider](../03-choosing-authentication/).
+- Broadcom TechDocs: [Deploying VCF Operations Orchestrator](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/deployment/deploying-a-new-vmware-cloud-foundation-or-vmware-vsphere-foundation-private-cloud-/manual-deployment-of-components-to-complete-your-vcf-platform/download-and-deploy-the-vco-va.html).
+
+</Recipe>

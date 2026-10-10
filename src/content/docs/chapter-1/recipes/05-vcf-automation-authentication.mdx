@@ -1,0 +1,93 @@
+---
+title: Authenticating with a VCF Automation organization
+description: Recipe 1.5 — tie a standalone Orchestrator to a VM Apps or All Apps organization in VCF Automation.
+sidebar:
+  label: 1.5 VCF Automation authentication
+  order: 5
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+
+When Orchestrator does extensibility work for VCF Automation, such as subscriptions, custom resources, or catalog workflows, it should authenticate against the VCF Automation organization it serves. This gives you the full role model: administrators, workflow designers, viewers, and group permissions.
+
+<Recipe type="ready">
+
+- A deployed appliance (recipe 1.2) with `root` access.
+- VCF Automation 9.x, here `auto.vmw.lab`.
+- The **organization name** to bind to, and an account to authenticate with: an **organization administrator** for a VM Apps organization, or a **provider administrator** for an All Apps organization.
+
+</Recipe>
+
+<Recipe type="how">
+
+#### A. Bind Orchestrator to the organization
+
+1. SSH to the appliance as `root` and run the command for your organization type. You'll be asked for the password. An API token also works.
+
+```bash title="root@vco01 — VM Apps organization"
+vracli vro authentication set -p tm \
+  -u orgadmin \
+  -hn https://auto.vmw.lab \
+  --tenant my-vm-apps-org
+```
+
+```bash title="root@vco01 — All Apps organization"
+vracli vro authentication set -p tm \
+  -u provideradmin \
+  -hn https://auto.vmw.lab \
+  --tenant my-all-apps-org
+```
+
+2. Redeploy the Orchestrator services:
+
+```bash title="root@vco01"
+/opt/scripts/deploy.sh
+```
+
+#### B. Add the integration in VCF Automation
+
+For a **VM Apps** organization:
+
+1. Log in to the organization as an organization administrator.
+2. Go to **Infrastructure** > **Integrations** > **Add Integration** > **Orchestration**.
+3. Enter a name, choose **User-deployed VCF Operations Orchestrator**, enter `https://vco01.vmw.lab`, and click **Add**.
+4. Click **Start Data Collection**, then check that workflows appear under **Orchestrator** > **Library** > **Workflows**.
+
+For an **All Apps** organization:
+
+1. Log in to the organization portal with provider administrator credentials.
+2. Go to **Administer** > **Connections** > **Integrations** and select **Orchestrator**.
+3. Enter a name, set **VCF Operations Orchestrator URL** to `https://vco01.vmw.lab:443` (or the load balancer address, for a cluster), click **Validate**, then **Add**.
+4. In the **Provider Management** portal, go to **Administer** > **Access Control** > **Rights Bundles**, open the **Orchestrator** rights bundle, click **Publish**, and select the organization.
+
+<Figure n="1.7" caption="Adding a standalone Orchestrator to an All Apps organization."
+  capture="VCF Automation 9.1, All Apps organization, <b>Administer > Connections > Integrations > Orchestrator</b> form with the URL filled in and <b>Validate</b> succeeded." />
+
+#### C. Give people roles
+
+In a VM Apps organization, go to **Infrastructure** > **Access Control** > **Users**, edit a user, and assign **Orchestrator Workflow Designer** (or **Orchestrator Viewer**). In an All Apps organization, assign the Orchestrator rights from the published bundle to the roles that need them.
+
+</Recipe>
+
+<Recipe type="works">
+
+The `tm` provider binds this Orchestrator to **exactly one** organization. Logins are checked by VCF Automation, and only members of that organization can get in. This is why one standalone instance serves one organization. A VM Apps organization can register several Orchestrator integrations, embedded and standalone, and pick between them with capability tags. An All Apps organization accepts only one standalone instance.
+
+VCF Automation collects workflows from Orchestrator every **10 minutes**. It only picks up changes to workflows whose version you've increased, so when you finish editing a workflow you want to publish, increase its version.
+
+</Recipe>
+
+<Recipe type="more">
+
+**Upgraded from Aria Automation 8.x?** Existing Orchestrator integrations and their content carry over into the corresponding VM Apps organization automatically. There's nothing to redo.
+
+**The VCF Automation plug-in.** To *call* VCF Automation from workflows (for example, to request a deployment), you also need the right plug-in configured. VM Apps and All Apps use different plug-ins. Chapter 8 covers both.
+
+</Recipe>
+
+<Recipe type="see">
+
+- [1.3 Choosing an authentication provider](../03-choosing-authentication/), for the full roles table.
+- Broadcom TechDocs: [Configure VCF Operations Orchestrator for VM Apps Organizations](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/types-of-orchestrator-instances/integrate-vcf-operations-orchestrator-with-vcf-automation-for-vm-apps.html) and [Integrate with VCF Automation with All Apps](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/types-of-orchestrator-instances/integrate-vcf-operations-orchestrator-with-vcf-automation-with-all-apps.html).
+
+</Recipe>

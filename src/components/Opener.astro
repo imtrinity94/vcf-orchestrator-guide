@@ -1,0 +1,10 @@
+---
+interface Props { n: number; recipes: { title: string; href: string }[] }
+const { n, recipes } = Astro.props;
+---
+<div class="ob-opener not-content">
+  <div class="ob-opener-num" aria-hidden="true">{n}</div>
+  <ol class="ob-opener-list">
+    {recipes.map((r, i) => (<li><span>{n}.{i + 1}</span><a href={r.href}>{r.title}</a></li>))}
+  </ol>
+</div>

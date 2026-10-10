@@ -1,0 +1,19 @@
+---
+// A numbered figure. Without `src` it renders a capture slot describing the screenshot still to be taken.
+interface Props { n: string; caption: string; src?: string; alt?: string; capture?: string }
+const { n, caption, src, alt, capture } = Astro.props;
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const url = src ? `${base}/${src.replace(/^\//, '')}` : null;
+---
+<figure class="ob-figure not-content">
+  {url ? (
+    <img src={url} alt={alt ?? caption} loading="lazy" />
+  ) : (
+    <div class="ob-shot" role="img" aria-label={`Screenshot to capture: ${caption}`}>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-2.5h6L17 8h3v11H4z" /><circle cx="12" cy="13" r="3.5" /></svg>
+      <div class="ob-shot-head">Screenshot to capture</div>
+      <p class="ob-shot-what" set:html={capture ?? caption} />
+    </div>
+  )}
+  <figcaption><b>Figure {n}.</b> {caption}</figcaption>
+</figure>

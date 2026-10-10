@@ -1,0 +1,60 @@
+---
+title: Authenticating with VCF SSO
+description: Recipe 1.6 — use the VCF Identity Broker so Orchestrator shares single sign-on with the rest of VCF.
+sidebar:
+  label: 1.6 VCF SSO authentication
+  order: 6
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import Verify from '../../../../components/Verify.astro';
+
+VCF 9 introduced **VCF SSO**: one identity broker in front of vCenter, NSX, VCF Operations, and the other components, usually federated with your corporate identity provider. If your vCenters already log in through it, point Orchestrator at it too, so administrators sign in once.
+
+<Recipe type="ready">
+
+- A deployed appliance (recipe 1.2) with `root` access.
+- VCF SSO configured in your fleet, and administrator access to VCF Operations.
+- A group in your identity source whose members should administer Orchestrator.
+
+</Recipe>
+
+<Recipe type="how">
+
+1. Log in to VCF Operations as an administrator and go to **Fleet Management** > **Identity & Access** > **VCF Other Components**.
+2. Create an OIDC client for Orchestrator: give it a name, choose the identity broker and VCF instance, leave both redirect URLs empty, generate the client, and click **Save**. Copy the **client ID** and **client secret**.
+
+<Figure n="1.8" caption="Creating an OIDC client for Orchestrator in VCF Operations."
+  capture="VCF Operations 9.1, <b>Fleet Management > Identity & Access > VCF Other Components</b>, new OIDC client form. Mask the secret." />
+
+3. SSH to the appliance as `root` and set VCF SSO as the provider. The hostname is the identity broker's URL, including the `/acs/t/<tenant>` path:
+
+```bash title="root@vco01"
+vracli vro authentication set -p vidb \
+  --hostname https://idb.vmw.lab/acs/t/CUSTOMER \
+  --client-id 'CLIENT_ID' \
+  --client-secret 'CLIENT_SECRET' \
+  --admin-group OrchestratorAdmins@vmw.lab
+```
+
+4. Check the values with `vracli vro authentication`, then run `/opt/scripts/deploy.sh`.
+5. Browse to `https://vco01.vmw.lab`. You're redirected to the VCF SSO sign-in page. Sign in as a member of the admin group.
+
+<Verify>Confirm the identity broker hostname format and the tenant segment in the URL against the 9.1 lab.</Verify>
+
+</Recipe>
+
+<Recipe type="works">
+
+With VCF SSO, Orchestrator becomes an OAuth client of the identity broker, the same way vCenter is. The client ID and secret let Orchestrator request and renew tokens. Your identity, and group membership for the admin group, come from whichever directory VCF SSO is federated with, such as Active Directory, Okta, or Entra ID.
+
+Because Orchestrator and vCenter now trust the same broker, a workflow can call vCenter **as the user who started it**, rather than through one shared service account. Recipe 1.9 shows the option that turns this on.
+
+</Recipe>
+
+<Recipe type="see">
+
+- [1.9 Registering your first vCenter](../09-register-vcenter/)
+- Broadcom TechDocs: [Integrate VCF Operations orchestrator with vSphere by using VCF SSO](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/types-of-orchestrator-instances/integrate-vcf-operations-orchestrator-with-vsphere.html).
+
+</Recipe>

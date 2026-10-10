@@ -1,0 +1,107 @@
+---
+title: Choosing an authentication provider
+description: Recipe 1.3 — the three ways to authenticate a standalone Orchestrator, how to pick one, and the guided wizard.
+sidebar:
+  label: 1.3 Choosing authentication
+  order: 3
+---
+import Recipe from '../../../../components/Recipe.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+
+A standalone Orchestrator has no user accounts of its own. It hands every login to one **authentication provider**, and that choice decides who can log in, which roles exist, and where the licence comes from. This recipe helps you choose, and shows the guided wizard. Recipes 1.4 to 1.6 then walk through each provider in detail.
+
+<Recipe type="ready">
+
+- A deployed appliance from recipe 1.2, and its `root` password.
+- SSH or VM console access to the appliance.
+- An administrator account on the provider you intend to use.
+
+</Recipe>
+
+<Recipe type="how">
+
+1. Decide which provider fits your environment:
+
+   | Use this provider | When | `-p` value |
+   |---|---|---|
+   | **vSphere** | Orchestrator automates vCenter for infrastructure teams, with no VCF Automation involved | `vsphere` |
+   | **VCF Automation** | Orchestrator serves one VCF Automation organization, either VM Apps or All Apps | `tm` |
+   | **VCF SSO** | Your vCenter logins already go through the VCF Identity Broker, and Orchestrator should use the same identities | `vidb` |
+
+2. Log in to the appliance as `root` and check what's configured now:
+
+```bash title="root@vco01"
+vracli vro authentication
+```
+
+3. Run the guided wizard. It asks for the provider type, its hostname, and the administrator credentials:
+
+```bash title="root@vco01"
+vracli vro authentication wizard
+```
+
+4. When the wizard finishes, restart the Orchestrator server so it picks up the new provider:
+
+```bash title="root@vco01"
+kubectl -n prelude delete pods -l app=vco-app
+```
+
+5. Wait a few minutes for the pods to come back, then browse to `https://vco01.vmw.lab` and log in with an account from the provider.
+
+</Recipe>
+
+<Recipe type="works">
+
+The provider is stored in the Orchestrator server's configuration, so changing it only takes effect when the `vco-app` pods restart. You'll see two ways to restart them, depending on the docs you read:
+
+- `kubectl -n prelude delete pods -l app=vco-app` deletes the Orchestrator pods, and Kubernetes recreates them straight away. It's quick.
+- `/opt/scripts/deploy.sh` redeploys every service on the appliance. It's slower, but it's the safe choice after bigger changes.
+
+All three providers also supply the **licence**. Orchestrator reads its entitlement from the provider during configuration, so there's nothing to enter.
+
+What users can do once logged in depends on the provider:
+
+| | vSphere | VCF Automation (VM Apps) | VCF Automation (All Apps) |
+|---|---|---|---|
+| **Administrators** | Members of the admin group you name in the command | Organization administrators, plus anyone given **Orchestrator Administrator** | Organization administrators, once the provider publishes the Orchestrator rights bundle |
+| **Other roles** | None | **Orchestrator Viewer**, **Orchestrator Workflow Designer** | Rights from the Orchestrator rights bundle, including custom roles |
+| **Groups** | Not available | Available | Available |
+
+Users with no Orchestrator role can still see the workflow runs started on their behalf, and answer user-interaction requests assigned to them.
+
+<ThenNow
+  then="Choose LDAP, Active Directory, or SSO on the Authentication page of the configuration website."
+  now="Choose vSphere, VCF Automation, or VCF SSO with <code>vracli vro authentication set</code> or the wizard." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**Scripting it instead.** The wizard is interactive. To automate the configuration, use `vracli vro authentication set` with all the values as parameters, as recipes 1.4 to 1.6 do. The useful options are:
+
+| Option | Meaning |
+|---|---|
+| `-p`, `--provider` | `vsphere`, `tm`, or `vidb` |
+| `-hn`, `--hostname` | The provider's hostname or URL |
+| `-u`, `--username` | The provider administrator account |
+| `--password-file` | A file holding the password, stored under `/data/vco/usr/lib/vco`. Leave out the `/data/vco` prefix when you pass the path. |
+| `--tenant` | The vSphere domain, or the VCF Automation organization name |
+| `--admin-group`, `--admin-group-domain` | The Orchestrator administrators group (vSphere only) |
+| `-k`, `--ignore-certificate` | Trust the provider's certificate without asking |
+| `-f`, `--force` | Replace an existing provider without confirming |
+| `--fqdn` | The address Orchestrator should advertise, if it isn't the appliance hostname |
+
+**Switching providers.** Run `vracli vro authentication unregister -u <admin>` to remove the current provider before configuring a new one.
+
+**When a command fails quietly.** Every `vracli vro` command logs to `/services-logs/prelude/vco-app/file-logs/vco-server-app_cfg-cli.log`. If a command exits with an error but prints nothing useful, look there.
+
+</Recipe>
+
+<Recipe type="see">
+
+- [1.4 Authenticating with vSphere](../04-vsphere-authentication/)
+- [1.5 Authenticating with a VCF Automation organization](../05-vcf-automation-authentication/)
+- [1.6 Authenticating with VCF SSO](../06-vcf-sso-authentication/)
+- Broadcom TechDocs: [Configuring the VCF Operations Orchestrator Authentication Provider](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/deployment/deploying-a-new-vmware-cloud-foundation-or-vmware-vsphere-foundation-private-cloud-/manual-deployment-of-components-to-complete-your-vcf-platform/download-and-deploy-the-vco-va/configuring-the-automation-orchestrator-authentication-provider-with-the-command-line-interface.html), and [VCF Operations orchestrator User Roles](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/types-of-orchestrator-instances/vcfo-user-roles-overview.html).
+
+</Recipe>
