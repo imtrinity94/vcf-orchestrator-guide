@@ -28,6 +28,18 @@ Pages live in `src/content/docs/`. Each recipe is an `.mdx` file that uses these
 | `<ThenNow then="…" now="…" />` | What changed since vRO 5.5–7 |
 | `<Verify>…</Verify>` | A statement that still needs checking in a lab |
 
+### Naming sample content
+
+Example workflows, actions and other Orchestrator objects in the book use one neutral convention:
+
+| Object | Convention | Example |
+|---|---|---|
+| Action module | `com.vcfguide.chapterN` | `com.vcfguide.chapter3` |
+| Workflow folder | `VCF Orchestrator Guide/Chapter N` | `VCF Orchestrator Guide/Chapter 3` |
+| Configuration / resource folder | `VCF Orchestrator Guide/Chapter N` | — |
+
+Orchestrator JavaScript samples are plain ES5.1.
+
 ### Adding a screenshot
 
 1. Capture it as described in the figure's slot (see `SHOTLIST.md`).
