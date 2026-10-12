@@ -1,9 +1,40 @@
 ---
-title: "Configuring the appliance"
-description: Chapter 2 of the VCF Orchestrator Guide. Coming soon.
+title: Configuring the appliance
+description: Chapter 2 — running a standalone Orchestrator appliance well. SSH, certificates, clustering, logging, backup, and sizing.
+sidebar:
+  label: Introduction
 ---
+import Opener from '../../../components/Opener.astro';
+import ThenNow from '../../../components/ThenNow.astro';
 import ComingSoon from '../../../components/ComingSoon.astro';
 
-Running a standalone Orchestrator well: certificates, clustering, logging, backup, and sizing.
+<Opener n={2} recipes={[
+  { title: 'Activating and deactivating SSH', href: 'recipes/01-ssh-access/' },
+  { title: 'Replacing the appliance certificate', href: 'recipes/02-appliance-certificate/' },
+  { title: 'Managing the package signing certificate', href: 'recipes/03-signing-certificate/' },
+  { title: 'Building a three-node cluster', href: 'recipes/04-three-node-cluster/' },
+]} />
 
-<ComingSoon topics={["Activating and deactivating SSH","Replacing the appliance certificate","Managing signing certificates","Building a three-node cluster","Sending logs to a syslog server","Backing up and restoring Orchestrator","Scaling the Java heap","Setting system properties that matter"]} />
+Chapter 1 got a standalone appliance running and authenticated. This chapter is about keeping it in shape: who can reach its shell, which certificates it presents and signs with, and how to make it survive the loss of a node. Later recipes in the chapter cover logging, backup, and sizing.
+
+Everything here applies to the **standalone appliance** only. The Orchestrator embedded in VCF Automation is managed as part of VCF Automation, and you don't get a root shell on it.
+
+## Where the settings went
+
+Almost every recipe in this chapter starts at the appliance's root shell. That's the biggest change for anyone who ran vRO 7 or early vRO 8.
+
+<ThenNow
+  then="Manage the appliance in two web pages: the appliance management interface on port 5480 (SSH, network, updates) and Control Center on port 8283 (certificates, clustering, logs)."
+  now="Both are gone. Control Center was removed in 8.18.1, and 9.x never had it. You use <code>vracli</code> and a few scripts in the root shell, plus a handful of workflows in the Orchestrator Client." />
+
+<ThenNow
+  then="Cluster Orchestrator by pointing every node at the same external SQL Server, Oracle, or PostgreSQL database and setting the number of active nodes."
+  now="Join three appliances into one Kubernetes cluster. The built-in PostgreSQL database is replicated across them for you." />
+
+## A word on restarts
+
+Several recipes end with `/opt/scripts/deploy.sh`. That script stops and redeploys every service on the appliance, so Orchestrator is unavailable while it runs, and running workflows are interrupted. Plan certificate and cluster changes for a maintenance window, and take a VM snapshot first.
+
+## Still to come in this chapter
+
+<ComingSoon topics={["Sending logs to a syslog server","Backing up and restoring Orchestrator","Scaling the Java heap","Setting system properties that matter"]} />

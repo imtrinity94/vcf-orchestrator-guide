@@ -1,0 +1,188 @@
+---
+title: Building a three-node cluster
+description: Recipe 2.4 — join three standalone appliances into one highly available Orchestrator behind a load balancer.
+sidebar:
+  label: 2.4 Three-node cluster
+  order: 4
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+A single appliance is a single point of failure. If its host dies, or you patch it, every workflow stops. A cluster of three appliances behind a load balancer keeps Orchestrator running when any one node is down, and picks up the interrupted workflows on the nodes that are left. This recipe turns the appliance from chapter 1 into the first node of such a cluster.
+
+<Figure n="2.6" caption="A three-node Orchestrator cluster. Clients only ever use the load balancer's name."
+  capture="Diagram, to be drawn: users, VCF Automation and REST clients connecting to <code>vco.vmw.lab</code> on a load balancer, which forwards TCP 443 to <code>vco01</code>, <code>vco02</code> and <code>vco03</code>. Inside, one Kubernetes cluster spans the three nodes, with a PostgreSQL replica on each, one marked primary." />
+
+<Recipe type="ready">
+
+You need:
+
+- **The first node**, `vco01.vmw.lab`, deployed and authenticated as in chapter 1. This becomes the cluster's primary node.
+- **Two more appliances**, `vco02.vmw.lab` and `vco03.vmw.lab`, deployed as in recipe 1.2 from **the same OVA build**, with the same Kubernetes network ranges. Don't configure authentication on them. Joining wipes them anyway.
+- **A load balancer** with a virtual IP and the FQDN `vco.vmw.lab`. NSX, HAProxy, F5, or anything else that can forward TCP will do. You set it up in step 1.
+- **DNS**: forward and reverse records for all four names, created before you start.
+- **A certificate** whose SANs include `vco.vmw.lab`, `vco01.vmw.lab`, `vco02.vmw.lab`, and `vco03.vmw.lab`. Create the CSR as in recipe 2.2, with all four names in `-addext`.
+- **SSH** on all three appliances (recipe 2.1).
+- **A snapshot** of each of the three VMs, taken with the VMs running but without memory, just before you start.
+- **A maintenance window** of about an hour. `vco01` is offline for most of it.
+
+Check that every pod is running on each appliance before you go further:
+
+```bash title="root@vco01, vco02, vco03"
+kubectl -n prelude get pods
+```
+
+</Recipe>
+
+<Recipe type="how">
+
+1. **Set up the load balancer.** Create a pool and a virtual server with these settings:
+
+   | Setting | Value |
+   |---|---|
+   | Virtual server | `vco.vmw.lab`, TCP port `443` |
+   | Type | Layer 4 (TCP passthrough). Don't decrypt TLS on the load balancer. |
+   | Pool members | `vco01`, `vco02`, `vco03`, port `443` |
+   | Persistence | None |
+   | Health monitor | HTTP `GET /health` on port `8008`, healthy on status `200`, every 3 seconds, 10-second timeout |
+
+   Only `vco01` will pass the health check for now. That's expected.
+
+2. **Point authentication at the load balancer.** On `vco01`, check the current provider, then register it again with the load balancer's name as the address Orchestrator advertises. This example re-registers the vSphere provider from recipe 1.4:
+
+```bash title="root@vco01"
+vracli vro authentication
+vracli vro authentication unregister -u administrator@vsphere.local
+vracli vro authentication set -p vsphere \
+  --hostname https://vc01.vmw.lab \
+  --username administrator@vsphere.local \
+  --tenant vsphere.local \
+  --admin-group OrchestratorAdmins \
+  --admin-group-domain vsphere.local \
+  --fqdn vco.vmw.lab
+```
+
+3. **Stop the services on the primary node:**
+
+```bash title="root@vco01"
+/opt/scripts/deploy.sh --onlyClean
+```
+
+4. **Tell the appliance about the load balancer:**
+
+```bash title="root@vco01"
+vracli load-balancer set vco.vmw.lab
+```
+
+5. **Load the cluster certificate.** Copy the PEM chain to `vco01` as in recipe 2.2, then:
+
+```bash title="root@vco01"
+vracli certificate ingress --set /root/vco-cluster-chain.pem
+```
+
+6. **Join the second node.** On `vco02`, run the join command against the primary and enter `vco01`'s root password when asked. The join resets `vco02`, copies the cluster configuration from `vco01`, and takes 10 to 15 minutes:
+
+```bash title="root@vco02"
+vracli cluster join vco01.vmw.lab
+```
+
+7. When the join on `vco02` has finished, **join the third node** the same way, from `vco03`:
+
+```bash title="root@vco03"
+vracli cluster join vco01.vmw.lab
+```
+
+8. **Check the cluster.** Back on `vco01`, all three nodes should be listed and `Ready`:
+
+```bash title="root@vco01"
+kubectl -n prelude get nodes
+```
+
+<Figure n="2.7" caption="Three nodes, all Ready, before the final deployment."
+  capture="SSH session on <code>vco01</code> showing <code>kubectl -n prelude get nodes</code> with <code>vco01</code>, <code>vco02</code> and <code>vco03</code> all in <code>Ready</code> state." />
+
+9. **Deploy the services across the cluster.** On `vco01`, run the deployment script and wait for `Prelude has been deployed successfully`. In a second SSH session you can watch the pods start on all three nodes with `watch -n 5 "kubectl -n prelude get pods -o wide"`.
+
+```bash title="root@vco01"
+/opt/scripts/deploy.sh
+```
+
+10. **Check the load balancer.** All three pool members should now pass the health check.
+
+<Figure n="2.8" caption="The load balancer sees all three nodes as healthy."
+  capture="The load balancer's pool status page (NSX in the lab) for the <code>vco.vmw.lab</code> pool, with <code>vco01</code>, <code>vco02</code> and <code>vco03</code> all up." />
+
+11. Browse to `https://vco.vmw.lab` and log in. From now on, use only this name, in browsers, in VCF Automation integrations, and in scripts.
+12. Delete the snapshots once you're happy with the cluster. Don't keep them as a fallback (see "There's more").
+
+<Verify>Steps 2 to 9 follow the Aria Automation Orchestrator 8.14 and 8.16 cluster procedures, adapted for the removal of Control Center. The 9.1 page <i>Configure a VCF Operations Orchestrator Cluster</i> exists but couldn't be read for this draft. Run the whole recipe in the lab and correct the order, especially whether step 2 (re-registering authentication with <code>--fqdn</code>) is the right replacement for the old Control Center <b>Host Settings</b> page, and whether 9.x still needs <code>deploy.sh --onlyClean</code> in step 3.</Verify>
+
+<Verify>The load balancer settings in step 1, including <code>GET /health</code> on port 8008, come from the vRealize Automation 8.11 load balancing guide's entries for external Orchestrator. Confirm the health URL and port on 9.1.1 with <code>curl -k http://vco02.vmw.lab:8008/health</code>, and record what it returns.</Verify>
+
+<Verify>Time steps 6, 7, and 9 in the lab. The 10 to 15 minutes per join is based on a community report from vRO 8.2.</Verify>
+
+</Recipe>
+
+<Recipe type="works">
+
+`vracli cluster join` doesn't link three separate Orchestrators together. It turns three appliances into **one Kubernetes cluster** that spans all three VMs. The joining node throws away its own setup, fetches the configuration from the primary, and becomes another member of the same cluster. Then `deploy.sh` spreads the services over the three nodes:
+
+- **Orchestrator** runs on every node, and all three take requests and run workflows. That's why the load balancer needs no persistence.
+- **PostgreSQL** runs on every node too. One copy is the primary database, and the other two are replicas kept in step with it asynchronously. If the primary database's node fails, one of the replicas takes over automatically.
+- **Workflow state** lives in that shared database. If a node fails partway through a workflow, another node picks the run up from the last step that hadn't finished.
+
+Because everything that matters is in the shared database and the shared cluster configuration, you configure Orchestrator once, through `vco.vmw.lab`, and every node gets the same settings, plug-ins, content, and certificates.
+
+The cluster survives the loss of **one** node. With two nodes down, it stops working, because the remaining node can't tell whether it's the one that's cut off.
+
+Setting the load balancer and the advertised FQDN matters because Orchestrator builds links and login redirects from its own name. If it still thought it was `vco01`, a user who reached it through `vco.vmw.lab` would be redirected to `vco01` after logging in, and would lose the protection of the cluster without noticing.
+
+<Verify>The descriptions of how work is spread across nodes and how interrupted runs resume come from the 8.14 <i>Orchestrator Cluster</i> page, which still contains text carried over from vRO 7. After building the cluster, power off the node running a long workflow and confirm the run resumes on another node.</Verify>
+
+<ThenNow
+  then="Install an external SQL Server, Oracle, or PostgreSQL database, point every node at it, then set <b>Number of active nodes</b> and click <b>Join node to cluster</b> in Control Center."
+  now="Deploy three identical appliances, run <code>vracli load-balancer set</code> on the first, <code>vracli cluster join</code> on the others, and <code>deploy.sh</code>. The database is built in and replicated for you." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**Removing a node is a one-way trip.** To shrink the cluster, run `vracli cluster leave` on the node you want to remove, then check from a remaining node with `kubectl -n prelude get nodes`. A node that has left can't be joined again. Delete the VM and deploy a new one if you need it back.
+
+**Recovering a broken node.** If one node is `NotReady` and won't recover, remove it from a healthy node, then join it again from the broken node:
+
+```bash title="root@vco01 (healthy node)"
+vracli cluster remove vco03.vmw.lab
+```
+
+```bash title="root@vco03 (broken node)"
+vracli cluster join vco01.vmw.lab
+```
+
+Join it to whichever node holds the primary database, which may no longer be `vco01`. To find out, run this on a healthy node, then map the pod to its node with `kubectl -n prelude get pods -o wide`:
+
+```bash title="root@vco01"
+kubectl -n prelude exec postgres-0 -- chpst -u postgres repmgr cluster show --terse --compact
+```
+
+**Don't revert one node to a snapshot.** Restoring a single node from a snapshot puts it out of step with the other two and can break the Kubernetes cluster. If a change goes wrong, revert all three nodes together, while they're powered off.
+
+<Verify>Confirm that reverting all three nodes at once, powered off, is a safe rollback on 9.1.1. The documentation only warns against restoring a single node.</Verify>
+
+**Keep the root passwords the same.** Each node keeps its own root password. Anything that reaches a node through the load balancer lands on whichever node it's sent to, so different passwords quickly become confusing. If you need to change one, take that node out of the load balancer pool first, change it, and put the node back.
+
+**Two nodes isn't a cluster.** The procedure supports exactly three. With two, losing either node takes the cluster down, which is worse than running one.
+
+**Sizing.** Every node needs the full 4 vCPUs, 12 GB of memory, and 200 GB of disk from recipe 1.2. If you raise memory for a bigger Java heap later in this chapter, do it on all three.
+
+</Recipe>
+
+<Recipe type="see">
+
+- [2.2 Replacing the appliance certificate](../02-appliance-certificate/), for building the PEM chain.
+- [1.4 Authenticating with vSphere](../../../chapter-1/recipes/04-vsphere-authentication/), for the full set of authentication options used in step 2.
+- Broadcom TechDocs: [Configure a VCF Operations Orchestrator Cluster](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-1/deployment/deploying-a-new-vmware-cloud-foundation-or-vmware-vsphere-foundation-private-cloud-/manual-deployment-of-components-to-complete-your-vcf-platform/download-and-deploy-the-vco-va/configure-a-vro-cluster-via-ssh.html), [Removing VCF Operations Orchestrator Cluster Nodes](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/deployment/deploying-a-new-vmware-cloud-foundation-or-vmware-vsphere-foundation-private-cloud-/manual-deployment-of-components-to-complete-your-vcf-platform/download-and-deploy-the-vco-va/delete-an-orchestrator-cluster-node.html), and [Recovering a VCF Operations Orchestrator Cluster Node](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/deployment/deploying-a-new-vmware-cloud-foundation-or-vmware-vsphere-foundation-private-cloud-/manual-deployment-of-components-to-complete-your-vcf-platform/download-and-deploy-the-vco-va/recovering-a-cluster-node.html).
+
+</Recipe>

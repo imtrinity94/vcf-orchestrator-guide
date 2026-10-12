@@ -1,0 +1,131 @@
+---
+title: Replacing the appliance certificate
+description: Recipe 2.2 — swap the appliance's self-signed TLS certificate for one signed by your certificate authority.
+sidebar:
+  label: 2.2 Appliance certificate
+  order: 2
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+Out of the box, the appliance presents a self-signed certificate that it generated from its own hostname at first boot. Browsers warn about it, and every system that calls Orchestrator's REST API has to be told to trust it. This recipe replaces it with a certificate signed by your own certificate authority (CA), so the warnings go away.
+
+<Recipe type="ready">
+
+- SSH access to the appliance as `root` (recipe 2.1).
+- A workstation with `openssl` and `scp`.
+- A CA that can sign a server certificate, such as Active Directory Certificate Services, and someone who can submit requests to it.
+- A maintenance window. Applying the certificate redeploys every service on the appliance.
+- A VM snapshot of the appliance, taken just before you start.
+
+</Recipe>
+
+<Recipe type="how">
+
+1. **Create a private key and a certificate signing request (CSR)** on your workstation. Put the appliance's FQDN in both the common name and the subject alternative names (SANs). Browsers ignore the common name and look only at the SANs.
+
+```bash title="workstation"
+openssl req -new -newkey rsa:2048 -nodes \
+  -keyout vco01.key -out vco01.csr \
+  -subj "/C=IN/O=VMW Lab/CN=vco01.vmw.lab" \
+  -addext "subjectAltName=DNS:vco01.vmw.lab,DNS:vco01"
+```
+
+2. Submit `vco01.csr` to your CA and ask for a **web server** certificate. Download the signed certificate, plus every intermediate CA certificate and the root CA certificate, all in Base64 (PEM) format.
+3. **Check that the key and the certificate belong together.** The two commands must print identical output:
+
+```bash title="workstation"
+openssl x509 -noout -pubkey -in vco01.crt | openssl sha256
+openssl pkey -pubout -in vco01.key | openssl sha256
+```
+
+4. **Build one PEM file** that holds, in this order, the private key, the appliance certificate, any intermediate CA certificates, and the root CA certificate:
+
+```bash title="workstation"
+cat vco01.key vco01.crt intermediate-ca.crt root-ca.crt > vco01-chain.pem
+```
+
+5. Copy the file to the appliance:
+
+```bash title="workstation"
+scp vco01-chain.pem root@vco01.vmw.lab:/root/
+```
+
+6. SSH to the appliance and **load the certificate**:
+
+```bash title="root@vco01"
+vracli certificate ingress --set /root/vco01-chain.pem
+```
+
+7. **Apply it** by redeploying the services. Don't interrupt the script. It's finished when it prints `Prelude has been deployed successfully`.
+
+```bash title="root@vco01"
+/opt/scripts/deploy.sh
+```
+
+8. Confirm the appliance is now using the new certificate:
+
+```bash title="root@vco01"
+vracli certificate ingress --list | openssl x509 -noout -subject -issuer -dates
+```
+
+<Figure n="2.2" caption="The new certificate, as the appliance reports it."
+  capture="SSH session on <code>vco01</code> showing the output of <code>vracli certificate ingress --list | openssl x509 -noout -subject -issuer -dates</code>, with the lab CA as issuer." />
+
+9. Delete the PEM file from the appliance, because it contains the private key: `rm /root/vco01-chain.pem`. Store your copy somewhere safe.
+10. Browse to `https://vco01.vmw.lab` from a machine that trusts your CA. The browser should show a secure connection with no warning.
+
+<Figure n="2.3" caption="The browser trusts the Orchestrator Client once the CA-signed certificate is in place."
+  capture="Browser certificate viewer for <code>https://vco01.vmw.lab</code>, showing the certificate chain up to the lab root CA and the <b>Subject Alternative Name</b> field." />
+
+</Recipe>
+
+<Recipe type="works">
+
+Orchestrator doesn't terminate TLS itself. Every request reaches the appliance's **ingress** first, the front door of the internal Kubernetes cluster, and the ingress holds the certificate that clients see. That's why the command is `vracli certificate ingress`. `--set` checks the file and stores it in the appliance's configuration, and `deploy.sh` rebuilds the services so the ingress picks it up.
+
+The chain has to be in one file, in order, because the ingress sends the whole chain to every client. If an intermediate certificate is missing, desktop browsers often cope, but scripts and other products calling the REST API fail with an "unable to verify" error.
+
+If `--set` fails with a message saying the public key in the certificate doesn't match the private key, you've combined the wrong key and certificate, or the file is out of order. Step 3 catches the first case before you get to the appliance.
+
+<Verify>The PEM order (key, certificate, intermediates, root), <code>vracli certificate ingress --set</code>, and the <code>deploy.sh</code> step come from the Aria Automation Orchestrator 8.18 documentation. Confirm on 9.1.1 that <code>deploy.sh</code> is still required. One community write-up of 9.0 says the certificate is applied without a restart.</Verify>
+
+<Verify>OpenSSL 3 writes keys in PKCS #8 format (<code>BEGIN PRIVATE KEY</code>). Broadcom's example shows the older <code>BEGIN RSA PRIVATE KEY</code> format. Confirm 9.1.1 accepts PKCS #8. If it doesn't, convert the key first with <code>openssl rsa -in vco01.key -out vco01-rsa.key -traditional</code>.</Verify>
+
+<Verify>Time how long <code>deploy.sh</code> takes on the 9.1.1 lab appliance, so the book can give readers a realistic maintenance window.</Verify>
+
+<ThenNow
+  then="Replace the certificate in the appliance management interface on port 5480, or import a PKCS #12 file on the <b>Certificates</b> page of Control Center."
+  now="Load a PEM chain with <code>vracli certificate ingress --set</code>, then run <code>/opt/scripts/deploy.sh</code>." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**Going back to self-signed.** To generate a fresh self-signed certificate, for example after changing the appliance's IP address or hostname, run `vracli certificate ingress --generate auto --set stdin`, then `/opt/scripts/deploy.sh`.
+
+**Pasting instead of copying.** If you can't use `scp`, run `vracli certificate ingress --set stdin`, paste the whole chain into the terminal, and press **Ctrl**+**D**.
+
+**Clusters need more names.** A cluster (recipe 2.4) is reached through its load balancer, so the certificate must name the load balancer's FQDN as well as each node.
+
+**Watch the expiry date.** Nothing warns you before the certificate expires. Put the `notAfter` date from step 8 in your calendar. You can also check it from any machine:
+
+```bash title="workstation"
+echo | openssl s_client -connect vco01.vmw.lab:443 2>/dev/null | openssl x509 -noout -dates
+```
+
+**This is the certificate Orchestrator shows, not the ones it trusts.** When a workflow calls another system over TLS, Orchestrator checks that system's certificate against its own trust store. You manage that store in the Orchestrator Client with the workflows tagged `ssl_trust_manager`, such as **Import a trusted certificate from a file** (which expects a DER-encoded file). To see what's already trusted, go to **Administration** > **Inventory** > **Configuration** > **Keystores** > **CA Keystore**, or run `vracli vro keystore list`.
+
+</Recipe>
+
+<Recipe type="see">
+
+- [2.4 Building a three-node cluster](../04-three-node-cluster/), which needs a certificate with extra SANs.
+- [2.3 Managing the package signing certificate](../03-signing-certificate/), the other certificate the appliance generates for itself.
+- Broadcom TechDocs: [Manage VCF Operations orchestrator certificates](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/types-of-orchestrator-instances/configuring-vcf-operations-orchestrator/manage-orchestrator-certificates.html).
+- Broadcom KB [445001](https://knowledge.broadcom.com/external/article/445001): the certificate and private key don't match.
+- Broadcom KB [423661](https://knowledge.broadcom.com/external/article/423661): checking certificate expiry dates on 8.18.1 and later.
+
+</Recipe>

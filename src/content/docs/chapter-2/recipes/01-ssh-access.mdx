@@ -1,0 +1,98 @@
+---
+title: Activating and deactivating SSH
+description: Recipe 2.1 — turn SSH access to the standalone appliance on when you need it and off when you don't.
+sidebar:
+  label: 2.1 SSH access
+  order: 1
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+Nearly every recipe in this chapter runs commands as `root` on the appliance. You can type them into the VM console, but SSH is far more comfortable: you can paste, copy files across with `scp`, and keep a log of what you did. This recipe turns SSH on, turns it off again, and shows a few ways to keep it tidy.
+
+<Recipe type="ready">
+
+- A standalone appliance deployed as in recipe 1.2, and its `root` password.
+- Access to the appliance's VM console in the vSphere Client. You need it the first time, because without SSH the console is the only way in.
+
+</Recipe>
+
+<Recipe type="how">
+
+1. **Check whether SSH is already on.** From your workstation, try to connect:
+
+```bash title="workstation"
+ssh root@vco01.vmw.lab
+```
+
+   If you get a password prompt, SSH is on and you can skip to step 5. If the connection is refused, carry on.
+
+2. In the vSphere Client, select the appliance VM (`vco01`) and click **Launch Web Console**.
+3. Log in as `root` at the console's login prompt.
+4. **Turn SSH on:**
+
+```bash title="root@vco01 (console)"
+/usr/bin/toggle-ssh enable
+```
+
+<Figure n="2.1" caption="Turning SSH on from the appliance console."
+  capture="vSphere web console of <code>vco01</code>, logged in as <code>root</code>, after running <code>/usr/bin/toggle-ssh enable</code>, showing the command's output." />
+
+5. From your workstation, connect over SSH and confirm you land in the appliance shell:
+
+```bash title="workstation"
+ssh root@vco01.vmw.lab
+vracli vro info
+```
+
+6. **Turn SSH off** when you've finished. You can do this over SSH, and your current session stays open until you log out:
+
+```bash title="root@vco01"
+/usr/bin/toggle-ssh disable
+```
+
+7. Log out, and try `ssh root@vco01.vmw.lab` again. The connection should now be refused.
+
+</Recipe>
+
+<Recipe type="works">
+
+The appliance runs a normal OpenSSH server on Photon OS. `toggle-ssh` is a small script shipped on the appliance that starts or stops that service and sets whether it starts at boot, so the setting survives a reboot. It's the same switch as the **SSH** option on the **Customize template** page when you deploy the OVA (recipe 1.2, step 10). Ticking that box just saves you this recipe.
+
+<Verify>The <code>/usr/bin/toggle-ssh enable</code> and <code>disable</code> commands come from the Orchestrator 8.x documentation. The 9.x page has the same title, but its text couldn't be read for this draft. Confirm the script exists on a 9.1.1 appliance and note its exact output for Figure 2.1.</Verify>
+
+<Verify>Check that <code>toggle-ssh</code> also sets the service to start at boot: reboot the appliance after <code>enable</code> and confirm SSH still answers.</Verify>
+
+<ThenNow
+  then="Open the appliance management interface on <code>https://appliance:5480</code>, go to the <b>Admin</b> tab, and tick <b>SSH service enabled</b>."
+  now="There's no web interface for it. Run <code>toggle-ssh enable</code> or <code>disable</code> from the console or an existing SSH session, or tick the option when you deploy." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**Harden what you keep.** If your security team wants SSH left on, you can still tighten it. The SSH server reads `/etc/ssh/sshd_config` as usual, so you can remove ciphers and MACs your policy doesn't allow. Restart the service afterwards with `systemctl restart sshd`, and keep the VM console open while you test, in case you lock yourself out.
+
+<Verify>Edits to <code>/etc/ssh/sshd_config</code> may be overwritten by an appliance upgrade. Check whether a custom cipher list survives an upgrade from 9.1.0 to 9.1.1.</Verify>
+
+**Use a key instead of a password.** Copy your public key across once SSH is on, and you won't need to type the root password for every command or `scp`:
+
+```bash title="workstation"
+ssh-copy-id root@vco01.vmw.lab
+```
+
+**Clusters.** In a three-node cluster (recipe 2.4), SSH is set per node. Run `toggle-ssh` on each appliance you need to reach.
+
+**No console access either?** If you can reach neither SSH nor the VM console, you can't run any `vracli` command. Ask your vSphere team for console access before you start a maintenance window.
+
+</Recipe>
+
+<Recipe type="see">
+
+- [1.8 Configuring Orchestrator from the command line](../../../chapter-1/recipes/08-command-line/), for what to do once you're in.
+- [2.2 Replacing the appliance certificate](../02-appliance-certificate/), which copies a file to the appliance with `scp`.
+- Broadcom TechDocs: [Activate or Deactivate SSH Access to VCF Operations orchestrator](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/setting-up-the-vrealize-orchestrator-client/configuring-vcf-operations-orchestrator/activate-or-deactivate-ssh-administrator-login-on-the-vcenter-orchestrator-appliance.html).
+
+</Recipe>

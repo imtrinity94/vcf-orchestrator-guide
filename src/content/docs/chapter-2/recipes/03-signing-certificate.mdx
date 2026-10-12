@@ -1,0 +1,99 @@
+---
+title: Managing the package signing certificate
+description: Recipe 2.3 — check, regenerate, and repair the certificate Orchestrator uses to sign exported packages.
+sidebar:
+  label: 2.3 Signing certificate
+  order: 3
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+When you export a package of workflows and actions, Orchestrator signs it, so whoever imports it can see where it came from and that nobody has changed it on the way. The signing certificate is generated for you, from the appliance's network settings, the first time the appliance boots. Most of the time you never think about it. This recipe covers the three times you do: when you want to give it a proper name, when the appliance's hostname changes, and when package export breaks.
+
+<Recipe type="ready">
+
+- An Orchestrator login with administrator rights.
+- A package to test with. If you don't have one yet, create an empty package called `com.vcfguide.chapter2` under **Assets** > **Packages**. [Chapter 6](../../../chapter-6/) covers packages properly.
+
+</Recipe>
+
+<Recipe type="how">
+
+1. **See the current certificate.** In the Orchestrator Client, go to **Administration** > **Inventory**, expand **Configuration** > **Keystores** > **Dunes**, and select the certificate. Note its subject and its `notAfter` date.
+
+<Figure n="2.4" caption="The package signing certificate in the Dunes keystore."
+  capture="<b>Administration > Inventory > Configuration > Keystores > Dunes</b>, with the signing certificate selected and its subject and validity dates visible in the details pane." />
+
+2. Decide whether you need a new one. Regenerate it if the appliance's FQDN has changed, if the certificate is close to expiry, or if you want packages to carry a meaningful name such as your team's.
+3. **Generate a new certificate.** Go to **Library** > **Workflows**, search for `package signing`, and run **Generate Package Signing Certificate**.
+4. Fill in the inputs:
+   - **Common name**: a name people will recognise when they import your packages, such as `vco01.vmw.lab` or `VMW Lab Orchestrator`.
+   - **Signature algorithm**: keep the default unless your security policy says otherwise.
+   - Leave the organization, country, and other inputs at their defaults, or fill them in if you want them shown on import.
+
+<Figure n="2.5" caption="The input form of the Generate Package Signing Certificate workflow."
+  capture="Run dialog of <b>Generate Package Signing Certificate</b>, with <b>Common name</b> set to <code>VMW Lab Orchestrator</code> and the signature algorithm drop-down open." />
+
+5. Click **Run** and wait for the green tick in **Activity** > **Workflow Runs**.
+6. Go back to **Keystores** > **Dunes** and confirm the certificate now shows your common name and new dates.
+7. **Test it.** Go to **Assets** > **Packages**, open `com.vcfguide.chapter2`, and export it. The export should download a `.package` file without an error.
+
+</Recipe>
+
+<Recipe type="works">
+
+Orchestrator keeps its own certificates and keys in **keystores**, stored in its database rather than on the appliance's disk. You'll see at least three in the inventory:
+
+| Keystore | What it holds |
+|---|---|
+| **Dunes** | The package signing certificate and its private key. The name goes back to Dunes, the company that first built Orchestrator. |
+| **CA Keystore** | Certificates of other systems that workflows are allowed to trust (see recipe 2.2). |
+| **SSO Keystore** | Certificates used when Orchestrator talks to its authentication provider. |
+
+When you export a package, Orchestrator signs its contents with the private key in **Dunes** and embeds the certificate in the file. When someone imports the package, Orchestrator checks the signature and shows them the certificate, so they can decide whether to trust it.
+
+Generating a new certificate replaces the old one. Packages you export from now on carry the new certificate. Packages you exported before keep the old one, and they still import, because the certificate travels inside each package.
+
+<Verify>The descriptions of the CA Keystore and SSO Keystore, and the claim that older packages still import after the certificate is regenerated, are inferred rather than documented. Check both on 9.1.1 by importing a package exported before step 3.</Verify>
+
+<Verify>The <b>Generate Package Signing Certificate</b> workflow and its inputs come from Broadcom KB 442343 and KB 445863. Confirm the workflow's exact name, its folder in <b>Library</b> > <b>Workflows</b>, and the default signature algorithm on 9.1.1.</Verify>
+
+<Verify>Confirm what the package import dialog on 9.1.1 shows about the signing certificate, and whether it asks the importer to trust a certificate it hasn't seen before.</Verify>
+
+<ThenNow
+  then="Open Control Center, go to <b>Certificates</b> > <b>Package Signing Certificate</b>, and click <b>Generate</b>, <b>Import</b>, or <b>Export</b>."
+  now="Run the <b>Generate Package Signing Certificate</b> workflow in the Orchestrator Client, and look at the result under <b>Keystores</b> > <b>Dunes</b>." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**Package export fails with "500, OK".** After an upgrade to 9.0 or 9.1.0, creating or exporting a package can fail with a `500, OK` error, and the server log shows a `NullPointerException` from the keystore code. The signing certificate is missing or damaged. Broadcom's workaround is to remove the damaged keystore and generate a fresh certificate:
+
+1. Go to **Library** > **Workflows**, open the **Configuration** > **Keystores** folder, and run **Delete a keystore**. Select **Dunes**.
+2. Run **Generate Package Signing Certificate** as in steps 3 to 5, with just a common name.
+3. Export a package to confirm the fix.
+
+<Verify>KB 445863 lists 9.0 and 9.1.0 as affected. Check whether the issue is fixed in 9.1.1, and whether deleting the Dunes keystore needs any extra step there.</Verify>
+
+**Bringing your own signing certificate.** If your organization wants packages signed with a certificate from its own CA, there's no import button any more. The **Configuration** > **Keystores** workflow folder has workflows for adding keys and certificates to a keystore, which may cover it.
+
+<Verify>Try importing a CA-issued signing certificate and key into the Dunes keystore with the keystore workflows on 9.1.1, and record which workflows and inputs work. If it isn't possible, say so in the book.</Verify>
+
+**Clusters share one certificate.** The keystores live in the database, which a cluster shares, so all three nodes sign packages with the same certificate. You only generate it once.
+
+**Expiry.** An expired signing certificate makes your packages harder to trust, even if they still import. Check the date in step 1 once a year.
+
+</Recipe>
+
+<Recipe type="see">
+
+- [2.2 Replacing the appliance certificate](../02-appliance-certificate/), for the TLS certificate and the CA Keystore.
+- [Chapter 6](../../../chapter-6/), on exporting and importing packages.
+- Broadcom KB [445863](https://knowledge.broadcom.com/external/article/445863): package creation fails with "500, OK" after upgrading to 9.0 or 9.1.0.
+- Broadcom KB [442343](https://knowledge.broadcom.com/external/article/442343): regenerating certificates in the Dunes keystore.
+- Broadcom TechDocs: [Manage VCF Operations orchestrator certificates](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/types-of-orchestrator-instances/configuring-vcf-operations-orchestrator/manage-orchestrator-certificates.html).
+
+</Recipe>
