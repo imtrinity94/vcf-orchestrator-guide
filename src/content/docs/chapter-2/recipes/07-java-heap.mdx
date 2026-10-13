@@ -1,0 +1,144 @@
+---
+title: Scaling the Java heap
+description: Recipe 2.7 — give the Orchestrator server more memory when big workflows, many parallel runs, or large plug-in inventories push it to the limit.
+sidebar:
+  label: 2.7 Java heap
+  order: 7
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+The Orchestrator server is a Java application, and everything a workflow holds while it runs, from a list of 5,000 VMs to a large JSON response, sits in its Java heap. When the heap fills up, the server stops answering, its pod restarts, and every running workflow is interrupted. This recipe shows how to recognise that, and how to give the server a bigger heap on a standalone appliance.
+
+<Recipe type="ready">
+
+- A standalone appliance or cluster with SSH access as `root` (recipe 2.1).
+- Permission to change the appliance VM's memory in the vSphere Client.
+- A snapshot of every node, taken as in recipe 2.6, and a maintenance window. Step 7 restarts all of Orchestrator's services.
+
+</Recipe>
+
+<Recipe type="how">
+
+1. **Confirm the heap is the problem.** Look for out-of-memory errors in the server log, and for Orchestrator pods with a high restart count:
+
+```bash title="root@vco01"
+grep -c "java.lang.OutOfMemoryError" /services-logs/prelude/vco-app/console-logs/vco-server-app.log
+kubectl -n prelude get pods | grep vco-app
+```
+
+   If the count is above zero, or the `RESTARTS` column for `vco-app` keeps climbing, carry on. If not, look elsewhere first: slow plug-in endpoints and long-running scripts look similar from the client.
+
+2. **Decide on the new size.** Note the current settings and the VM's memory, so you can work out how much to add. On 9.1 the server's memory is set by three values:
+
+   | Value | Default | What it does |
+   |---|---|---|
+   | `serverMemoryLimit` | `4.4G` | The most memory the Orchestrator server container may use |
+   | `serverMemoryRequest` | `3.2G` | The memory Kubernetes reserves for it |
+   | `serverJvmMaxRamPercentage` | `40` | The share of the container's limit that Java may use as heap |
+
+   The heap is the percentage of the limit, so the default heap is 40% of 4.4 GB, about 1.8 GB. In this recipe you raise the limit to `8G` and the percentage to `50`, for a 4 GB heap.
+
+3. **Add memory to the VM first.** Shut down the appliance from its console with `shutdown -h now`, or with **Power** > **Shut Down Guest OS** in the vSphere Client. Add at least as much memory as you're adding to `serverMemoryLimit` (here, 8 − 4.4 ≈ 4 GB, so 12 GB becomes 16 GB), then power the VM on and wait until all pods are `Running`.
+
+4. **Create a custom profile.** A profile is a folder of settings that the appliance applies over its defaults every time it deploys its services. Create one with a `check` script that always says "yes, apply me":
+
+```bash title="root@vco01"
+mkdir -p /etc/vmware-prelude/profiles/custom-profile/helm/prelude_vco
+cat > /etc/vmware-prelude/profiles/custom-profile/check <<'EOF'
+#!/bin/bash
+exit 0
+EOF
+chmod 755 /etc/vmware-prelude/profiles/custom-profile/check
+```
+
+5. **Write the new memory settings** into the profile:
+
+```bash title="root@vco01"
+cat > /etc/vmware-prelude/profiles/custom-profile/helm/prelude_vco/90-resources.yaml <<'EOF'
+serverMemoryLimit: 8G
+serverMemoryRequest: 6G
+serverJvmMaxRamPercentage: 50
+EOF
+chmod 644 /etc/vmware-prelude/profiles/custom-profile/helm/prelude_vco/90-resources.yaml
+```
+
+   Keep `serverMemoryRequest` lower than `serverMemoryLimit`, and leave everything else in the file at its default.
+
+6. **Check the file** before you apply it. A typo here stops the services from starting:
+
+```bash title="root@vco01"
+cat /etc/vmware-prelude/profiles/custom-profile/helm/prelude_vco/90-resources.yaml
+```
+
+7. **Apply it.** Redeploy the services and wait for `Prelude has been deployed successfully`:
+
+```bash title="root@vco01"
+/opt/scripts/deploy.sh
+```
+
+8. **Check the new limits.** The Orchestrator pod should now show the new memory limit, and the Java process the new percentage:
+
+```bash title="root@vco01"
+kubectl -n prelude describe pods -l app=vco-app | grep -A3 -i limits
+ps -eo args | grep -o -- '-XX:MaxRAMPercentage=[0-9.]*' | sort -u
+```
+
+<Figure n="2.13" caption="The Orchestrator server's new memory limit after the redeployment."
+  capture="SSH session on <code>vco01</code> showing the output of both commands from step 8: the <code>Limits</code> block of the <code>vco-app</code> pod with <code>memory: 8G</code>, and <code>-XX:MaxRAMPercentage=50</code>." />
+
+<Verify>Steps 2, 5, and 8 are based on Broadcom KB 447520 for an external Orchestrator 9.1, which lists <code>serverJvmMaxRamPercentage</code> with the defaults shown in step 2. The 8.x procedure used <code>serverJvmHeapMax</code> instead. On 9.1.1, read the defaults from the KB's setup script, confirm a file with only the three keys in step 5 is enough (the KB writes every default into it), and check that the commands in step 8 show the change. Correct the pod label in step 8 if <code>app=vco-app</code> doesn't match.</Verify>
+
+<Verify>The guidance in step 3 to add as much VM memory as you add to the limit is adapted from the 8.16 procedure, which said to add RAM equal to the heap increase. Check with the 9.1 TechDocs once they cover this, and watch <code>free -g</code> on the appliance after step 7.</Verify>
+
+</Recipe>
+
+<Recipe type="works">
+
+The appliance doesn't run Orchestrator directly. `deploy.sh` installs it into the appliance's Kubernetes cluster from a Helm chart, and the chart's values decide, among other things, how much memory each container may use and how big the Java heap inside it is.
+
+Before it installs the chart, `deploy.sh` looks at every folder under `/etc/vmware-prelude/profiles/`. For each one it runs the `check` script. If the script exits with `0`, the profile is active, and the files in its `helm/prelude_vco/` folder are layered over the chart's default values for Orchestrator. Your `90-resources.yaml` only lists the values you want to change, so everything else keeps its default.
+
+Kubernetes then enforces the numbers. `serverMemoryRequest` is reserved for the container when it starts. `serverMemoryLimit` is a hard ceiling: if the container goes over it, Kubernetes kills it. Java sizes its heap as a share of that ceiling, `serverJvmMaxRamPercentage`, and uses the rest for its own threads, code, and buffers. That's why you can't set the percentage close to 100: the container would be killed for going over its limit before Java ever reported that the heap was full.
+
+<Verify>The description of how <code>deploy.sh</code> selects and applies profiles is inferred from the KB's script and file layout. Confirm it on 9.1.1, and check whether the custom profile survives an upgrade from 9.1.0 to 9.1.1.</Verify>
+
+<ThenNow
+  then="Edit the server's startup settings in <code>setenv.sh</code>, change the <code>-Xmx</code> value, and restart the <code>vco-server</code> service."
+  now="Write the new values into a custom profile under <code>/etc/vmware-prelude/profiles/</code> and run <code>deploy.sh</code>. Kubernetes enforces the container's memory, and Java sizes its heap from it." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**Clusters.** Every node needs the same profile and the same VM memory. Add memory to each VM in turn, then create the profile on all three nodes. `vracli cluster exec` runs one command on every node, which is how Broadcom's KB does it:
+
+```bash title="root@vco01"
+vracli cluster exec -- cat /etc/vmware-prelude/profiles/custom-profile/helm/prelude_vco/90-resources.yaml
+```
+
+Use it to check that all three nodes have the same file before you run `deploy.sh` once, on any node.
+
+**More heap isn't always the answer.** If the heap fills up again after you've doubled it, something is holding on to memory. Typical causes are a workflow that loads a whole inventory into one array, an attribute that keeps growing on every loop, or thousands of finished runs kept with large outputs. Broadcom KB 372531 explains how to find the heap dump that the server writes when it runs out of memory, under `/services-logs/prelude/vco-app/file-logs/`, and how to analyse it.
+
+**Polyglot scripts have their own memory.** Python, Node.js, and PowerShell actions run in separate containers, not in the Java heap. If those fail with memory errors, the values to raise are `polyglotRunnerMemoryLimit` and `polyglotRunnerMemoryLimitVco`, in the same file. Keep `polyglotRunnerMemoryLimitVco` 300 MB below `polyglotRunnerMemoryLimit`. Chapter 4 covers polyglot actions.
+
+<Verify>The 300 MB rule comes from the 8.16 procedure. The 9.1 defaults in KB 447520 (6000M and 5700M) follow it, but confirm the rule still applies on 9.1.1.</Verify>
+
+**Undoing the change.** Delete the `custom-profile` folder and run `deploy.sh` again to go back to the defaults. You can then shrink the VM, with it powered off.
+
+**The embedded Orchestrator.** Inside VCF Automation, Orchestrator's memory is set by VCF Automation's deployment size. You can't use a custom profile there. If the largest size isn't enough, move heavy workflows to a standalone Orchestrator and size that instead.
+
+</Recipe>
+
+<Recipe type="see">
+
+- [2.6 Backing up and restoring Orchestrator](../06-backup-restore/), for the snapshot before you start.
+- [2.8 Setting system properties that matter](../08-system-properties/), for limits on how many workflows run at once.
+- Broadcom KB 447520: [Increasing the external orchestrator heap memory in VMware Aria Automation 9.1](https://knowledge.broadcom.com/external/article/447520/increasing-the-external-orchestrator-hea.html).
+- Broadcom KB 372531, on workflow 502 errors caused by an exhausted heap, and on finding the heap dump: [knowledge.broadcom.com/external/article/372531](https://knowledge.broadcom.com/external/article/372531).
+- Broadcom TechDocs (Aria Automation Orchestrator 8.16): [How to Scale the Heap Memory Size of the Automation Orchestrator Server](https://techdocs.broadcom.com/us/en/vmware-cis/aria/aria-automation/8-16/vco-installing-and-configuring-8-16/configuration-use-cases/how-to-increase-or-scale-the-heap-memory-of-the-vrealize-orchestrator-server.html).
+
+</Recipe>

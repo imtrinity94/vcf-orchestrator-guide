@@ -1,0 +1,167 @@
+---
+title: Setting system properties that matter
+description: Recipe 2.8 — the handful of system properties you are most likely to need, how to set them, and how to prove they took effect.
+sidebar:
+  label: 2.8 System properties
+  order: 8
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+System properties are switches that change how the Orchestrator server behaves. Most installations never touch them, but sooner or later a workflow needs to run a shell command, use a Java class that the scripting engine blocks, or wait longer for a slow vCenter. Recipe 1.8 showed the `vracli vro properties` commands. This recipe uses them on the properties you're most likely to need, and tests each one with a small action.
+
+<Recipe type="ready">
+
+- A standalone appliance with SSH access as `root` (recipe 2.1). System properties can't be changed on the Orchestrator embedded in VCF Automation.
+- An account in the Orchestrator Client that can create actions.
+- An action module called `com.vcfguide.chapter2`. Create it under **Library** > **Actions** if it doesn't exist yet.
+- A maintenance window. Setting a property restarts the Orchestrator server, which interrupts running workflows.
+
+</Recipe>
+
+<Recipe type="how">
+
+**Look before you change anything**
+
+1. List the properties already set on this server, then the commonly used ones with their descriptions:
+
+```bash title="root@vco01"
+vracli vro properties
+vracli vro properties advanced
+```
+
+<Figure n="2.14" caption="The commonly used system properties and their descriptions."
+  capture="SSH session on <code>vco01</code> showing part of the output of <code>vracli vro properties advanced</code>, with at least <code>com.vmware.js.allow-local-process</code> visible." />
+
+**Allow workflows to run shell commands**
+
+2. Set `com.vmware.js.allow-local-process` to `true`. Use `-n` so the server doesn't restart yet, because you'll set two more properties first:
+
+```bash title="root@vco01"
+vracli vro properties set -k com.vmware.js.allow-local-process -v true -n
+```
+
+**Let scripts use more Java classes**
+
+3. Create a file that lists the Java packages and classes scripts may use, one per line. It must be in a subfolder of `/data/vco/usr/lib/vco` on the appliance:
+
+```bash title="root@vco01"
+mkdir -p /data/vco/usr/lib/vco/vcfguide
+cat > /data/vco/usr/lib/vco/vcfguide/class-shutter.txt <<'EOF'
+java.net.InetAddress
+EOF
+```
+
+4. Point the property `com.vmware.scripting.rhino-class-shutter-file` at the file. Note the path: it starts at `/usr/lib/vco`, not `/data/vco/usr/lib/vco`, because that's where the folder appears inside the Orchestrator server's container:
+
+```bash title="root@vco01"
+vracli vro properties set -k com.vmware.scripting.rhino-class-shutter-file \
+  -v /usr/lib/vco/vcfguide/class-shutter.txt -n
+```
+
+**Wait longer for a busy vCenter**
+
+5. Raise the time Orchestrator waits for a vCenter response, `com.vmware.vmo.plugin.vi4.waitUpdatesTimeout`, from its default of 20,000 milliseconds to 60,000. This time, leave out `-n`, so the server restarts and picks up all three changes:
+
+```bash title="root@vco01"
+vracli vro properties set -k com.vmware.vmo.plugin.vi4.waitUpdatesTimeout -v 60000
+```
+
+6. Wait for the server to come back. `vracli vro info -d` reports it healthy again after a few minutes. Then check that all three properties are listed:
+
+```bash title="root@vco01"
+vracli vro properties
+```
+
+**Prove it works**
+
+7. In the Orchestrator Client, create an action `getDiskUsage` in the module `com.vcfguide.chapter2`, with return type `string` and this script:
+
+```javascript title="com.vcfguide.chapter2/getDiskUsage"
+// Needs com.vmware.js.allow-local-process = true
+var cmd = new Command("df -h /var/run/vco");
+var exitCode = cmd.execute(true);   // true: wait for the command to finish
+if (exitCode !== 0) {
+    throw "df failed with exit code " + exitCode + ": " + cmd.output;
+}
+System.log(cmd.output);
+return cmd.output;
+```
+
+8. Run the action. The log shows the disk usage of the folder, as seen from inside the server's container.
+
+9. Create a second action, `resolveHost`, in the same module, with an input `hostName` of type `string`, return type `string`, and this script:
+
+```javascript title="com.vcfguide.chapter2/resolveHost"
+// Needs java.net.InetAddress in the class shutter file
+var address = java.net.InetAddress.getByName(hostName);
+System.log(hostName + " resolves to " + address.getHostAddress());
+return address.getHostAddress();
+```
+
+10. Run it with `vc01.vmw.lab`. The log shows vCenter's IP address. Before step 4, the same script fails because the scripting engine can't see the class.
+
+<Figure n="2.15" caption="An action using a Java class that the class shutter file allows."
+  capture="Orchestrator Client, run of the action <code>com.vcfguide.chapter2/resolveHost</code> with <code>hostName</code> = <code>vc01.vmw.lab</code>, <b>Logs</b> tab showing the resolved IP address." />
+
+<Verify>Steps 3 and 4 adapt the 8.16 procedure, which set the property in Control Center. Confirm on 9.1.1 that the file must be under <code>/data/vco/usr/lib/vco</code>, that the value <code>/usr/lib/vco/vcfguide/class-shutter.txt</code> is the path the server sees, and whether the value should name the file or its folder (the 8.x wording is ambiguous).</Verify>
+
+<Verify>Check on 9.1.1 that the <code>Command</code> class accepts a single command string, as in step 7, and that <code>df -h /var/run/vco</code> runs inside the server's container. Capture the exact error both actions return before their properties are set, for the "There's more" section.</Verify>
+
+</Recipe>
+
+<Recipe type="works">
+
+The Orchestrator server stores system properties in its own configuration, alongside settings such as the authentication provider. `vracli vro properties set` writes a key and value there, then restarts the Orchestrator server so that it reads them again at start-up. Most properties are only read once, when the server starts, which is why a change needs the restart and why `-n` is useful for batching several changes into one restart.
+
+Each property in this recipe loosens a default that exists for a reason:
+
+- **`com.vmware.js.allow-local-process`** unlocks the `Command` scripting class, which runs operating system commands as the server's own user. Without the property, `Command` refuses to run. With it, `Command` can also write anywhere in the server's file system, regardless of the rules in `js-io-rights.conf`, which still apply to every other scripting class.
+- **`com.vmware.scripting.rhino-class-shutter-file`** widens the list of Java classes that Orchestrator's JavaScript engine lets scripts see. By default scripts can only use the `java.util` package. The file names extra packages (`java.net.*`) or single classes (`java.net.InetAddress`), one per line.
+- **`com.vmware.vmo.plugin.vi4.waitUpdatesTimeout`** is how long, in milliseconds, the vCenter plug-in waits for vCenter to answer before giving up. Raise it when an overloaded vCenter makes workflows fail with timeouts. It doesn't make anything slower when vCenter is healthy.
+
+The `Command` class and every Java class you allow run inside the Orchestrator server's container, not on the appliance itself. The container sees its own file system, with a few folders from the appliance mapped into it: `/data/vco/usr/lib/vco` on the appliance appears as `/usr/lib/vco` inside, and `/data/vco/var/run/vco` appears as `/var/run/vco`. That mapping is why step 4's path differs from step 3's.
+
+<Verify>The folder mapping between the appliance and the server's container is inferred from the 8.x documentation's paths. Confirm both mappings on 9.1.1, for example by creating a file in <code>/data/vco/var/run/vco</code> on the appliance and listing <code>/var/run/vco</code> from an action.</Verify>
+
+<ThenNow
+  then="Open Control Center, go to <b>System Properties</b>, click <b>New</b>, type the key and value, and save. The server restarts."
+  now="Run <code>vracli vro properties set -k … -v …</code> in the appliance shell. Add <code>-n</code> to set several and restart once." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**Allow only what you need.** A class shutter file with `java.lang.*` or `java.io.*` in it, or `allow-local-process` on a server that many people can write workflows on, gives every workflow author the server's own operating system rights. Prefer a narrow list of single classes, and record why each one is there. If a REST call or a plug-in can do the job, use that instead.
+
+**Server file system access.** Scripting classes that read and write files, such as `File` and `FileWriter`, are limited by `/data/vco/usr/lib/vco/app-server/conf/js-io-rights.conf`. Each line is `+` (allow) or `-` (deny), then any of `r`, `w`, `x`, then a path, and later lines override earlier ones. By default only `/var/run/vco` is fully writable, which is why the action in step 7 looks there. Never add `+rwx /`.
+
+<Verify>The <code>js-io-rights.conf</code> location and default rules come from the 8.16 and 8.18 documentation. Check the file's location and contents on 9.1.1. The 8.18 page says the file is created only when a workflow first touches the file system.</Verify>
+
+**Basic authentication.** Older guides tell you to set `com.vmware.o11n.sso.basic-authentication.enabled` to turn basic authentication on or off for the REST API. That property only applies when Orchestrator is authenticated with VCF Automation. On a standalone appliance authenticated with vSphere, it has no effect, and Broadcom says there's currently no supported way to turn basic authentication off there.
+
+**Properties for the workflow engine.** Some properties limit how many workflows run at once, how many wait in the queue, or how much run history is kept. They're tempting when the server is busy, but they trade one problem for another. Change them only on Broadcom's advice, and check `vracli vro properties advanced` for the ones your build supports.
+
+**Removing a property.** Remove the key to go back to the default. This restarts the server too:
+
+```bash title="root@vco01"
+vracli vro properties remove -k com.vmware.vmo.plugin.vi4.waitUpdatesTimeout
+```
+
+**Clusters.** Set properties once, on any node. They're stored in the shared configuration, and every node restarts with them. The class shutter file, though, is an ordinary file on the appliance's disk, so copy it to the same path on all three nodes.
+
+<Verify>Check in the three-node lab cluster that a property set on one node applies to all three, and whether the class shutter file must exist on every node.</Verify>
+
+</Recipe>
+
+<Recipe type="see">
+
+- [1.8 Configuring Orchestrator from the command line](../../../chapter-1/recipes/08-command-line/), for every `vracli vro properties` option.
+- [2.7 Scaling the Java heap](../07-java-heap/), if a busy server runs out of memory rather than time.
+- Broadcom TechDocs: [Set JavaScript Access to Java Classes](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/setting-up-the-vrealize-orchestrator-client/configuring-vcf-operations-orchestrator/setting-system-properties/set-javascript-access-to-java-classes.html), [Set Custom Timeout Property](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/types-of-orchestrator-instances/configuring-vcf-operations-orchestrator/setting-system-properties/set-custom-timeout-property.html), and [Configuring VCF Operations orchestrator with the command line interface](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/types-of-orchestrator-instances/configuring-vcf-operations-orchestrator/additional-command-line-interface-configuration-options.html).
+- VMware Docs (Aria Automation Orchestrator 8.16): [Allow the Command scripting class](https://docs.vmware.com/en/VMware-Aria-Automation/8.16/Installing-Configuring-Automation-Orchestrator/GUID-F4995BD2-F2F7-48C0-B239-197F27FFE693.html) and [Rules in the js-io-rights.conf file](https://docs.vmware.com/en/VMware-Aria-Automation/8.16/Installing-Configuring-Automation-Orchestrator/GUID-7C2CFC22-519B-4D38-84F9-00380CEB15CF.html).
+- Broadcom KB 440608: [Aria Orchestrator Basic Authentication property does not apply to standalone instances](https://knowledge.broadcom.com/external/article/440608/aria-orchestrator-basic-authentication-p.html).
+
+</Recipe>

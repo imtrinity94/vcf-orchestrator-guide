@@ -6,16 +6,19 @@ sidebar:
 ---
 import Opener from '../../../components/Opener.astro';
 import ThenNow from '../../../components/ThenNow.astro';
-import ComingSoon from '../../../components/ComingSoon.astro';
 
 <Opener n={2} recipes={[
   { title: 'Activating and deactivating SSH', href: 'recipes/01-ssh-access/' },
   { title: 'Replacing the appliance certificate', href: 'recipes/02-appliance-certificate/' },
   { title: 'Managing the package signing certificate', href: 'recipes/03-signing-certificate/' },
   { title: 'Building a three-node cluster', href: 'recipes/04-three-node-cluster/' },
+  { title: 'Sending logs to a syslog server', href: 'recipes/05-syslog/' },
+  { title: 'Backing up and restoring Orchestrator', href: 'recipes/06-backup-restore/' },
+  { title: 'Scaling the Java heap', href: 'recipes/07-java-heap/' },
+  { title: 'Setting system properties that matter', href: 'recipes/08-system-properties/' },
 ]} />
 
-Chapter 1 got a standalone appliance running and authenticated. This chapter is about keeping it in shape: who can reach its shell, which certificates it presents and signs with, and how to make it survive the loss of a node. Later recipes in the chapter cover logging, backup, and sizing.
+Chapter 1 got a standalone appliance running and authenticated. This chapter is about keeping it in shape: who can reach its shell, which certificates it presents and signs with, and how to make it survive the loss of a node. The second half covers the things you set once and rely on for years: where its logs go, how to get it back after a bad day, how much memory it gets, and the system properties that change its defaults.
 
 Everything here applies to the **standalone appliance** only. The Orchestrator embedded in VCF Automation is managed as part of VCF Automation, and you don't get a root shell on it.
 
@@ -33,8 +36,4 @@ Almost every recipe in this chapter starts at the appliance's root shell. That's
 
 ## A word on restarts
 
-Several recipes end with `/opt/scripts/deploy.sh`. That script stops and redeploys every service on the appliance, so Orchestrator is unavailable while it runs, and running workflows are interrupted. Plan certificate and cluster changes for a maintenance window, and take a VM snapshot first.
-
-## Still to come in this chapter
-
-<ComingSoon topics={["Sending logs to a syslog server","Backing up and restoring Orchestrator","Scaling the Java heap","Setting system properties that matter"]} />
+Several recipes end with `/opt/scripts/deploy.sh`. That script stops and redeploys every service on the appliance, so Orchestrator is unavailable while it runs, and running workflows are interrupted. Plan certificate, cluster, and memory changes for a maintenance window, and take a VM snapshot first (recipe 2.6).
