@@ -56,7 +56,13 @@ export default defineConfig({
             { autogenerate: { directory: 'chapter-2/recipes' } },
           ],
         },
-        { label: '3. Visual programming', slug: 'chapter-3', badge: { text: 'Soon', variant: 'default' } },
+        {
+          label: '3. Visual programming',
+          items: [
+            { label: 'Introduction', slug: 'chapter-3' },
+            { autogenerate: { directory: 'chapter-3/recipes' } },
+          ],
+        },
         { label: '4. Scripting and environments', slug: 'chapter-4', badge: { text: 'Soon', variant: 'default' } },
         { label: '5. Working with plug-ins', slug: 'chapter-5', badge: { text: 'Soon', variant: 'default' } },
         { label: '6. Content lifecycle', slug: 'chapter-6', badge: { text: 'Soon', variant: 'default' } },

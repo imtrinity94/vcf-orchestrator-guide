@@ -1,0 +1,138 @@
+---
+title: "Workflow basics: inputs, outputs, and variables"
+description: Recipe 3.1 — build a small workflow from scratch and see how inputs, variables, and outputs carry data from one step to the next.
+sidebar:
+  label: 3.1 Workflow basics
+  order: 1
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+A workflow holds data in three kinds of slot. **Inputs** are what the person or system running it supplies. **Outputs** are what it hands back when it finishes. **Variables** are its working memory in between. Each step in the schema reads some of these slots and writes others. Once that idea clicks, every other recipe in this chapter is a variation on it.
+
+In this recipe you build a two-step workflow that takes a virtual machine, works out its power state, and returns a one-line summary of it.
+
+<Recipe type="ready">
+
+- A working Orchestrator login with a role that can create workflows, such as **Workflow designer** or administrator.
+- The vCenter registered in recipe 1.9 (`vc01.vmw.lab`), with at least one VM in its inventory.
+- A workflow folder for this chapter's examples. Under **Library** > **Workflows**, switch to the folder (tree) view and create the folder **VCF Orchestrator Guide**, then a subfolder **Chapter 3** inside it.
+
+<Verify>Check how folders are created in the 9.1.1 workflow library: the name of the view toggle, and whether you right-click a folder or use a <b>New Folder</b> button.</Verify>
+
+</Recipe>
+
+<Recipe type="how">
+
+**Create the workflow**
+
+1. Go to **Library** > **Workflows** and click **New Workflow**.
+2. Enter the name `Describe a VM` and click **Create**. The workflow editor opens on the **Summary** tab.
+3. On the **Summary** tab, set the folder to **VCF Orchestrator Guide/Chapter 3** and add a short description, for example `Returns the power state and size of one VM.` Click **Save**.
+
+**Define the input and the output**
+
+4. Open the **Inputs/Outputs** tab and click **New**. Add an input:
+   - **Name**: `vm`
+   - **Type**: `VC:VirtualMachine`
+   - **Direction**: **Input**
+5. Click **New** again and add an output:
+   - **Name**: `summary`
+   - **Type**: `string`
+   - **Direction**: **Output**
+
+**Define a variable**
+
+6. Open the **Variables** tab, click **New**, and add a variable called `powerState` of type `string`. Leave its value empty. The first step fills it in.
+
+<Figure n="3.1" caption="The input and output of the Describe a VM workflow."
+  capture="Workflow editor for <b>Describe a VM</b>, <b>Inputs/Outputs</b> tab, showing the input <code>vm</code> (<code>VC:VirtualMachine</code>) and the output <code>summary</code> (<code>string</code>)." />
+
+**Add the first step**
+
+7. Open the **Schema** tab. From the **Generic** group of the palette on the left, drag a **Scriptable task** onto the arrow between the start and end elements.
+8. Click the new element. In the properties pane on the right:
+   - On the **General** tab, set **Name** to `Read power state`.
+   - On the **Inputs/Outputs** tab, add `vm` as an input and `powerState` as an output.
+   - On the **Scripting** tab, enter this script:
+
+```javascript title="Describe a VM — Read power state"
+// vm is bound as an input, powerState as an output
+powerState = vm.runtime.powerState.value;
+System.log(vm.name + " is " + powerState);
+```
+
+**Add the second step**
+
+9. Drag a second **Scriptable task** onto the arrow between `Read power state` and the end element. Name it `Build summary`.
+10. On its **Inputs/Outputs** tab, add `vm` and `powerState` as inputs and `summary` as an output. Then enter this script:
+
+```javascript title="Describe a VM — Build summary"
+var cpus = vm.summary.config.numCpu;
+var memoryMb = vm.summary.config.memorySizeMB;
+summary = vm.name + ": " + powerState + ", " + cpus + " vCPU, " + memoryMb + " MB";
+System.log(summary);
+```
+
+11. Click **Save**.
+
+<Figure n="3.2" caption="The finished schema, with the bindings of the second step."
+  capture="<b>Schema</b> tab of <b>Describe a VM</b>: Start, <b>Read power state</b>, <b>Build summary</b>, End. <b>Build summary</b> selected, <b>Inputs/Outputs</b> tab of the properties pane showing <code>vm</code> and <code>powerState</code> in, <code>summary</code> out." />
+
+**Run it**
+
+12. Click **Run**. The run form shows one field, **vm**, with a picker that browses the vCenter inventory. Choose any VM and click **Run**.
+13. When the run finishes, open its **Logs** tab. You see one line from each step.
+14. Open the run's **Variables** tab. It shows the value of every input, variable, and output at the end of the run: the VM you chose, `powerState` (for example `poweredOn`), and the finished `summary`.
+
+<Figure n="3.3" caption="A finished run, showing the values each slot held at the end."
+  capture="Workflow run of <b>Describe a VM</b>, <b>Variables</b> tab, with <code>vm</code>, <code>powerState</code> = <code>poweredOn</code> and <code>summary</code> filled in." />
+
+<Verify>Walk steps 1–14 on 9.1.1 and confirm the exact labels: <b>New Workflow</b> and <b>Create</b>, the <b>Summary</b> tab's folder field, the <b>Inputs/Outputs</b> tab name (the 8.x docs call it both "Input/Output" and "Inputs/Outputs"), whether a parameter has a <b>Direction</b> column, the palette group <b>Generic</b>, and the scriptable task's property tabs <b>General</b>, <b>Inputs/Outputs</b>, and <b>Scripting</b>.</Verify>
+
+</Recipe>
+
+<Recipe type="works">
+
+The workflow editor's tabs are the parts of one workflow definition. **Summary** holds its name, folder, description, and run settings. **Variables** and **Inputs/Outputs** declare its slots. **Schema** is the drawing of its steps, and **Input Form** (recipe 3.6) is the form people see when they run it. **Version History** and **Audit** record changes and runs.
+
+When the workflow runs, Orchestrator creates a **workflow token**: one run, with its own copy of every slot. The inputs are filled from the run form, then the schema is walked from the start element. Before each step runs, Orchestrator copies the current values of that step's bound inputs into it. After the step finishes, it copies the step's outputs back into the slots they're bound to. That copying is called **binding**, and it's the only way data moves between steps. A variable you set in one scriptable task's script isn't visible in the next one unless it's bound as an output of the first and an input of the second.
+
+Inside a script, each bound slot appears as a plain JavaScript variable with the same name. That's why the scripts above can use `vm` and `powerState` without declaring them, and why `var cpus` is local: it isn't bound to anything, so it's thrown away when the step ends.
+
+The types matter. A binding only joins slots of compatible types, and the type decides what the run form offers. A `VC:VirtualMachine` input gets an inventory picker, while a `string` would get a text box. The `VC:` types come from the vSphere plug-in you configured in recipe 1.9.
+
+Every token's slots are saved to Orchestrator's database after each step. That's what makes the **Variables** tab of a finished run useful for troubleshooting, and it's what lets a long workflow survive a restart and carry on where it stopped.
+
+<ThenNow
+  then="Edit workflows in the Java client. Workflow variables are called <b>attributes</b>, and you bind each element on its <b>IN</b> and <b>OUT</b> tabs, or by dragging lines in the <b>Visual Binding</b> tab."
+  now="Edit workflows in the browser. Attributes are now called <b>variables</b>, and you bind each element on its <b>Inputs/Outputs</b> tab. There's no visual binding view." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**Inputs are read-only.** Inside the workflow, steps read inputs but don't write them. If a step needs to change a value it was given, copy it into a variable and change that. Keeping inputs untouched also means the run's **Variables** tab always shows what the person asked for.
+
+<Verify>Confirm that the 9.1.1 editor refuses to bind a step's output to a workflow input parameter, and note what it shows when you try.</Verify>
+
+**Variables with a value.** A variable can have a starting value as well as a type, for example a default timeout or a vCenter folder name. Every run starts from that value. For values that change between environments, such as a mail relay or an IP range, a **configuration element** (Chapter 4) is a better home, because several workflows can share it and you can change it without editing them.
+
+**Inputs become the form.** Every input appears on the run form, in the order you declared them, and every variable stays hidden. If something shouldn't be asked of the person running the workflow, make it a variable. Recipe 3.6 shows how to group, label, and validate the form.
+
+**Name slots for what they hold.** `vm`, `powerState`, and `summary` read well in scripts and in run logs. Avoid names such as `input1` or `temp`. You'll see them again in the **Variables** tab of a failed run at 2 a.m.
+
+**Outputs and other callers.** Outputs matter most when something else runs the workflow: a parent workflow (recipe 3.2), a VCF Automation extensibility subscription, or a REST client. They get the output values back and you don't need to parse logs.
+
+</Recipe>
+
+<Recipe type="see">
+
+- [3.2 Scriptable tasks and the schema canvas](../02-scriptable-tasks/), to work with more elements and with actions.
+- [1.9 Registering your first vCenter](../../../chapter-1/recipes/09-register-vcenter/), for the `VC:` types used here.
+- Broadcom TechDocs (VCF 9): [Defining Variables and Parameters](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/developing-workflows-with-vcf-operations-orchestrator/vcfo-defining-variables-and-parameters.html), [Data Flow of a Workflow](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/developing-workflows-with-vcf-operations-orchestrator/working-with-the-workflow-schema/links-and-bindings/vcfo-data-flow-of-a-workflow.html), and [Building a Workflow in the Workflow Schema](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/developing-workflows-with-vcf-operations-orchestrator/working-with-the-workflow-schema/vcfo-building-a-workflow-in-the-workflow-schema.html).
+- VMware Docs (vRealize Orchestrator 8.x): [The workflow editor](https://docs.vmware.com/en/vRealize-Orchestrator/8.x/com.vmware.vrealize.orchestrator-dev.doc/GUID095A8A9B-4EF1-4E3A-8CAE-B8CC2F49B968.html).
+
+</Recipe>

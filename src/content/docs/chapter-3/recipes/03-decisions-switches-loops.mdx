@@ -1,0 +1,160 @@
+---
+title: Decisions, switches, and loops
+description: Recipe 3.3 — branch a workflow with decisions and switches, loop back until a condition is met, and run a sub-workflow once for each item in an array.
+sidebar:
+  label: 3.3 Decisions, switches, and loops
+  order: 3
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+A straight line of steps only gets you so far. Real processes ask questions: is the VM on, did the guest come up, are there more items to handle? Orchestrator answers them on the canvas with four elements: the **decision**, the **custom decision**, the **switch**, and the **foreach**. A loop is simply an arrow that points back to an earlier element.
+
+This recipe builds `Wait for VMware Tools`, which checks a VM's power state, then polls until VMware Tools is running or it runs out of attempts. A second, short workflow then runs recipe 3.1's `Describe a VM` once for each VM in a list.
+
+<Recipe type="ready">
+
+- The `Describe a VM` workflow from recipe 3.1, and the folder **VCF Orchestrator Guide/Chapter 3**.
+- A VM in the lab with VMware Tools installed, so you can watch the loop end successfully. A powered-off VM is useful for testing the other path.
+
+</Recipe>
+
+<Recipe type="how">
+
+**Set up the workflow**
+
+1. Create a workflow called `Wait for VMware Tools` in **VCF Orchestrator Guide/Chapter 3**.
+2. On the **Inputs/Outputs** tab, add an input `vm` of type `VC:VirtualMachine` and an output `result` of type `string`.
+3. On the **Variables** tab, add these variables:
+
+| Name | Type | Value |
+|---|---|---|
+| `powerState` | `string` | (empty) |
+| `toolsRunning` | `boolean` | `false` |
+| `attempt` | `number` | `0` |
+| `maxAttempts` | `number` | `10` |
+| `waitSeconds` | `number` | `30` |
+
+**Branch on the power state with a switch**
+
+4. On the **Schema** tab, add a **Scriptable task** called `Read power state`, with `vm` in and `powerState` out:
+
+```javascript title="Wait for VMware Tools — Read power state"
+powerState = vm.runtime.powerState.value;
+System.log(vm.name + " is " + powerState);
+```
+
+5. Drag a **Switch** from the **Generic** group onto the arrow after `Read power state`.
+6. Add a **Scriptable task** called `Not powered on` below the switch, with `vm` and `powerState` in and `result` out, and link it to an end element:
+
+```javascript title="Wait for VMware Tools — Not powered on"
+result = vm.name + " is " + powerState + ", so there is nothing to wait for";
+System.log(result);
+```
+
+7. Add a **Scriptable task** called `Check VMware Tools` to the right of the switch. Bind `vm`, `attempt`, `maxAttempts`, and `waitSeconds` as inputs, and `attempt`, `toolsRunning`, and `result` as outputs:
+
+```javascript title="Wait for VMware Tools — Check VMware Tools"
+attempt = attempt + 1;
+var toolsStatus = vm.guest.toolsRunningStatus;
+toolsRunning = (toolsStatus === "guestToolsRunning");
+result = vm.name + ": VMware Tools is " + toolsStatus + " after " + attempt + " check(s)";
+System.log("Check " + attempt + " of " + maxAttempts + ": " + toolsStatus);
+
+// Pause before the next check, but not after the last one
+if (!toolsRunning && attempt < maxAttempts) {
+    System.sleep(waitSeconds * 1000);
+}
+```
+
+8. Select the switch. On its **Cases** tab, add one case: when `powerState` **equals** `poweredOn`, go to `Check VMware Tools`. Set the **default** element to `Not powered on`.
+
+<Figure n="3.7" caption="A switch with one case and a default path."
+  capture="<b>Schema</b> tab of <b>Wait for VMware Tools</b>, switch selected, <b>Cases</b> tab showing <code>powerState</code> equals <code>poweredOn</code> → <b>Check VMware Tools</b>, default → <b>Not powered on</b>." />
+
+**Decide whether you're done**
+
+9. Drag a **Decision** onto the arrow after `Check VMware Tools`. Name it `Tools running?`. In its properties, choose the variable `toolsRunning` and the condition **is true**.
+10. Link the decision's **true** path to an end element.
+
+**Loop back if not**
+
+11. Drag a **Custom decision** onto the canvas and link the decision's **false** path to it. Name it `Try again?`, bind `attempt` and `maxAttempts` as inputs, and enter this script. A custom decision must return `true` or `false`:
+
+```javascript title="Wait for VMware Tools — Try again?"
+return attempt < maxAttempts;
+```
+
+12. Link the custom decision's **true** path back to `Check VMware Tools`. That arrow is the loop.
+13. Link its **false** path to an end element. The workflow ends there when it runs out of attempts, with `result` saying what VMware Tools last reported. Recipe 3.4 shows how to make this case fail the run instead.
+14. Click **Save**.
+
+<Figure n="3.8" caption="The finished schema: a switch, a decision, and a custom decision that loops back."
+  capture="<b>Schema</b> tab of <b>Wait for VMware Tools</b>: Start → <b>Read power state</b> → switch; default → <b>Not powered on</b> → End; case → <b>Check VMware Tools</b> → <b>Tools running?</b>; true → End; false → <b>Try again?</b>; true arrow back to <b>Check VMware Tools</b>, false → End." />
+
+15. Run it against a powered-on VM. The log shows one line per check until VMware Tools reports `guestToolsRunning`. Run it against a powered-off VM. The run goes straight down the default path.
+
+<Verify>On 9.1.1, check the labels used in steps 8–12: the switch's <b>Cases</b> tab and default element, the decision's condition list for a <code>boolean</code> (for example <b>is true</b> or <b>equals</b> <code>true</code>), how the true and false paths of a decision are drawn and linked, and that a switch follows the first matching case. Check which comparisons a switch case offers for a <code>number</code>.</Verify>
+
+**Run a workflow for each VM in a list**
+
+16. Create a workflow called `Describe several VMs` in the same folder.
+17. On the **Schema** tab, drag a **Foreach element** from the **Generic** group onto the arrow between start and end, and choose the workflow `Describe a VM`.
+18. Click **Promote** in the banner. Choose **Input** for `vm` and **Output** for `summary`. Because they're promoted from a foreach element, the new input is an array, `Array/VC:VirtualMachine`, and the new output is `Array/string`.
+19. Save and run it. On the run form, add three VMs to `vm`. The run calls `Describe a VM` three times, one VM each time, and the output holds the three summaries in the same order.
+
+<Figure n="3.9" caption="A foreach element runs Describe a VM once for each VM in the input array."
+  capture="Run of <b>Describe several VMs</b> with three VMs, <b>Variables</b> tab showing the input array of three VMs and the output <code>summary</code> array with three lines." />
+
+<Verify>Confirm that promoting from a foreach element on 9.1.1 creates array-typed input and output, and that the output collects one value per iteration in order. Note where the 9.1.1 foreach element shows which parameter it iterates over.</Verify>
+
+</Recipe>
+
+<Recipe type="works">
+
+The three branching elements work the same way underneath: they read slots and pick which arrow to follow next. They don't change data, so there's nothing to bind as an output. The foreach element is different: it runs a whole sub-workflow and can collect its outputs.
+
+- A **decision** compares one input, a parameter or variable, with a value, and follows its true or false path. You fill in a form, not a script, so it's the easiest to read.
+- A **custom decision** runs a script with as many bound inputs as you like and follows the path that matches its return value. Use it when the condition needs more than one slot or any arithmetic.
+- A **switch** checks its cases in order and follows the first one that matches. If none does, it follows the default path. It's a tidier way to write three or more decisions in a row.
+- A **foreach** element runs a sub-workflow once for each item of the arrays you give it. A parameter that isn't an array gets the same value on every run. When the sub-workflow has outputs, the foreach element collects one value per run into an array.
+
+A **loop** isn't a separate element. Orchestrator simply follows the arrow back to `Check VMware Tools`, which runs again with the current values of `attempt` and the other slots. Because every step's slots are saved after it runs, a loop that's interrupted by a restart picks up at the check it was on.
+
+`vm.guest.toolsRunningStatus` comes from vCenter, through the vSphere plug-in. Each time the scriptable task reads it, the plug-in returns the property's current value.
+
+<Verify>Check whether the 9.1.1 vSphere plug-in caches <code>vm.guest.toolsRunningStatus</code> between loop iterations. If it does, the loop needs a refresh call before each read.</Verify>
+
+<ThenNow
+  then="Loop over an array with a hand-built pattern: a counter variable, a custom decision, and a scriptable task that picks the next item. Later versions added a foreach element, configured in a dialog of the Java client."
+  now="Drop a foreach element on the canvas and promote the sub-workflow's parameters. The arrays and the collected outputs are created for you." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**Don't sleep for long.** `System.sleep` keeps the run busy and holds a thread on the server. That's fine for seconds or a few minutes. For anything longer, such as waiting an hour for a change window, use a **waiting timer** element instead, which pauses the run without using the server's resources (recipe 3.7).
+
+**Always bound a loop.** Every loop needs a way out that doesn't depend on the outside world. `maxAttempts` makes sure this one ends even if VMware Tools never starts. Without it, a VM with broken Tools would keep the run going for ever.
+
+**Composite types.** When a foreach element needs to iterate over pairs of values, for example a VM and its new name, promote them as one **composite type**. Each item then holds both values, so they can't get out of step. Workflows with composite-type inputs can't be run from every client, so keep them for workflows that other workflows call.
+
+**Switches on numbers.** A switch case can compare more than strings. Use it on a `number`, such as the number of CPUs, with conditions such as greater than or less than.
+
+**Failures inside a foreach.** If one run of the sub-workflow fails, the foreach element fails too, and the items after it aren't processed. Recipe 3.4 shows how to catch the error and carry on with the next item.
+
+<Verify>Confirm how a failed iteration behaves on 9.1.1: whether the foreach element stops at the first failure, and whether its error path receives the failing item.</Verify>
+
+</Recipe>
+
+<Recipe type="see">
+
+- [3.1 Workflow basics](../01-workflow-basics/), for the `Describe a VM` workflow used by the foreach element.
+- [3.4 Handling errors and exceptions](../04-handling-errors/), to make the give-up path fail the run.
+- Broadcom TechDocs (VCF 9): [Schema Elements and Schema Element Properties](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/developing-workflows-with-vcf-operations-orchestrator/working-with-the-workflow-schema/vcfo-schema-elements-and-schema-element-properties.html) and [Logical Flow of a Workflow](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/developing-workflows-with-vcf-operations-orchestrator/working-with-the-workflow-schema/links-and-bindings/vcfo-logical-flow-of-a-workflow.html).
+- Broadcom TechDocs (Aria Automation Orchestrator): [Foreach Elements and Composite Types](https://techdocs.broadcom.com/us/en/vmware-cis/aria/aria-automation/all/developing-workflows-all/working-with-the-workflow-schema/using-forech-elements-and-composite-types.html) and [Add a Switch Activity to a Workflow](https://techdocs.broadcom.com/us/en/vmware-cis/aria/aria-automation/all/developing-workflows-all/working-with-the-workflow-schema/add-a-switch-activity-to-a-workflow.html).
+- VMware Docs (vRealize Orchestrator 8.x): [Using a foreach element](https://docs.vmware.com/en/vRealize-Orchestrator/8.x/com.vmware.vrealize.orchestrator-dev.doc/GUID-14E07488-B926-43D7-A2AD-4797B1CB2BA4.html).
+
+</Recipe>

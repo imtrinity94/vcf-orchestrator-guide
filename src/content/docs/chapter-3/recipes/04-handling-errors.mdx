@@ -1,0 +1,146 @@
+---
+title: Handling errors and exceptions
+description: Recipe 3.4 — catch errors on the schema with exception paths and a default error handler, fail a run on purpose with a clear message, and decide when to use try and catch in a script instead.
+sidebar:
+  label: 3.4 Handling errors
+  order: 4
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+Every workflow that touches a real system will eventually meet an error: a VM that isn't there, a vCenter that times out, a name that matches twice. What matters is what happens next. Without error handling, the run stops at the step that failed, its state becomes **Failed**, and the message is whatever the failing code happened to say. With it, you choose: log something useful, clean up, try another way, or fail on purpose with a message the person running the workflow can act on.
+
+This recipe builds `Find a VM by name`, which turns a typed VM name into exactly one `VC:VirtualMachine`, and fails clearly when it can't.
+
+<Recipe type="ready">
+
+- The action `com.vcfguide.chapter3/findVmsByName` from recipe 3.2.
+- The folder **VCF Orchestrator Guide/Chapter 3**.
+- The name of a VM that exists in the lab, and a name that doesn't.
+
+</Recipe>
+
+<Recipe type="how">
+
+**Build the happy path**
+
+1. Create a workflow called `Find a VM by name` in **VCF Orchestrator Guide/Chapter 3**. Give it an input `vmName` of type `string` and an output `vm` of type `VC:VirtualMachine`.
+2. On the **Variables** tab, add a variable `errorMessage` of type `string`.
+3. On the **Schema** tab, add a **Scriptable task** called `Find the VM`, with `vmName` in and `vm` out, and this script:
+
+```javascript title="Find a VM by name — Find the VM"
+// Match the whole name, so "web" doesn't also find "web01" and "web02"
+var exactName = "^" + vmName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "$";
+var matches = System.getModule("com.vcfguide.chapter3").findVmsByName(exactName);
+
+if (matches.length === 0) {
+    throw "No VM is called " + vmName;
+}
+if (matches.length > 1) {
+    throw matches.length + " VMs are called " + vmName + ". Rename one, or look it up in a single vCenter.";
+}
+vm = matches[0];
+System.log("Found " + vm.name + " (" + vm.id + ")");
+```
+
+4. Save and run it twice: once with a VM name that exists, once with one that doesn't. The second run ends in the **Failed** state, and the run's error is the text you threw. You haven't handled anything yet. That's the default behaviour.
+
+**Catch the error on an exception path**
+
+5. Select `Find the VM`. On its **General** tab, under **Exception handling**, click **Select variable** and choose `errorMessage`. From now on, an error in this element is caught, and its message is copied into `errorMessage`.
+6. Drag a new **Scriptable task** from the palette and drop it onto `Find the VM`. A red dashed arrow appears between them: that's the element's **exception path**. Name the new task `Explain the failure`, and bind `vmName` and `errorMessage` as inputs and `errorMessage` as an output:
+
+```javascript title="Find a VM by name — Explain the failure"
+System.error("Lookup of '" + vmName + "' failed: " + errorMessage);
+errorMessage = "Could not find the VM '" + vmName + "'. " + errorMessage +
+    ". Check the spelling, or ask the vSphere team whether it was renamed.";
+```
+
+7. Drag a **Thrown exception** element from the **Generic** group onto the arrow after `Explain the failure`. Bind its input to `errorMessage`.
+
+<Figure n="3.10" caption="An exception path from Find the VM to a thrown exception."
+  capture="<b>Schema</b> tab of <b>Find a VM by name</b>: <b>Find the VM</b> → End on the normal path; red dashed exception arrow from <b>Find the VM</b> to <b>Explain the failure</b> → <b>Thrown exception</b>. <b>Find the VM</b> selected, <b>General</b> tab showing <b>Exception handling</b> bound to <code>errorMessage</code>." />
+
+8. Save and run it again with the missing name. The run still fails, which is what you want, but its error now says what went wrong and what to do about it, and the log has an error-level line from `Explain the failure`.
+
+<Figure n="3.11" caption="A failed run with a message written for the person who ran it."
+  capture="Failed run of <b>Find a VM by name</b> with a name that doesn't exist: run header in the <b>Failed</b> state with the custom error text, and the <b>Logs</b> tab showing the error line from <b>Explain the failure</b>." />
+
+**Catch everything else with a default error handler**
+
+9. Drag a **Default error handler** from the **Generic** group onto an empty part of the canvas. It isn't linked to any element. It catches any error that an element's own exception path doesn't.
+10. Drop a **Scriptable task** called `Log unexpected error` onto it and link that to a second **Thrown exception**, bound to `errorMessage` as in step 7. Its script can be one line:
+
+```javascript title="Find a VM by name — Log unexpected error"
+System.error("Unexpected failure in Find a VM by name: " + errorMessage);
+```
+
+11. Save. To test it, add `var broken = vmName.noSuchFunction();` as the first line of a new scriptable task in front of `Find the VM`, run the workflow, and check that the run goes to `Log unexpected error`. Then remove the test task.
+
+<Figure n="3.12" caption="The default error handler, catching errors that no exception path does."
+  capture="<b>Schema</b> tab of <b>Find a VM by name</b> with a <b>Default error handler</b> standing on its own, linked to <b>Log unexpected error</b> → <b>Thrown exception</b>, beside the main path from figure 3.10." />
+
+<Verify>Walk steps 5–11 on 9.1.1. Confirm that dropping a scriptable task onto an element creates the exception path (as the 8.x documentation describes for user interactions), the exact palette names <b>Thrown exception</b> and <b>Default error handler</b>, which variable the default error handler fills with the error message, and the text shown in the run header of a failed run.</Verify>
+
+</Recipe>
+
+<Recipe type="works">
+
+Every element except the start, end, and decision elements has two ways out: the normal path and the **exception path**. When the element's script throws, or a plug-in call inside it fails, Orchestrator looks for somewhere to send the error:
+
+1. If the element has an exception path, Orchestrator copies the error's message into the variable you chose under **Exception handling**, then follows the red dashed arrow.
+2. If not, and the workflow has a **default error handler**, the run goes there.
+3. If there's neither, the run stops and ends in the **Failed** state, with the error as its result.
+
+That's the same idea as `try` and `catch` in a script, applied to a whole element: the element is the `try` block, and the exception path is the `catch`.
+
+The **Thrown exception** element does the opposite. It ends the run on purpose, in the **Failed** state, with the string you bind to it as the error. Ending on an exception rather than on a normal end element matters to anything that runs the workflow. A parent workflow sees the child fail and can follow its own exception path. A VCF Automation extensibility subscription that blocks on the workflow sees the failure and stops the deployment. A REST client sees the run's state as failed. If you caught the error and then ended normally, they'd all think it worked.
+
+`throw` in an Orchestrator script accepts a plain string, and that string becomes the error message. You can also throw an `Error` object, `throw new Error("…")`, and the message is read from it.
+
+<Verify>Check on 9.1.1 what the caught variable contains when a script throws <code>new Error("text")</code> instead of a string, for example whether it starts with <code>Error:</code> or includes a line number.</Verify>
+
+<ThenNow
+  then="Bind an element's exceptions on its <b>Exceptions</b> tab to an <code>errorCode</code> attribute, then drag from the element's red connector to draw the exception link in the Java client."
+  now="Choose the variable under <b>Exception handling</b> on the element's <b>General</b> tab, and drop the next element onto it to draw the red dashed exception path. Any <code>string</code> variable will do, though many teams still call it <code>errorCode</code>." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**Use try and catch for errors you expect to recover from.** An exception path is right when the error changes what the workflow does next. When the step can carry on by itself, catch the error in the script and keep the schema simple:
+
+```javascript title="Recovering inside a script"
+var hostName = "unknown";
+try {
+    hostName = vm.runtime.host.name;
+} catch (e) {
+    // The VM may be mid-migration, or the host may be disconnected
+    System.warn("Could not read the host of " + vm.name + ": " + e);
+}
+System.log(vm.name + " runs on " + hostName);
+```
+
+**Don't swallow errors.** A `catch` that only logs, or an exception path that leads to a normal end element, turns a failure into a success. Do it only when the workflow really has done its job. If not, finish the exception path with a **Thrown exception**.
+
+**Fail the loop from recipe 3.3.** In `Wait for VMware Tools`, replace the end element on the false path of `Try again?` with a **Thrown exception** bound to `result`. When VMware Tools never starts, the run fails, and the error says what Tools last reported.
+
+**Keep going in a foreach.** To process the remaining items when one fails, handle the error inside the sub-workflow. Give its risky step an exception path that logs the error, sets an output such as `status` to `failed`, and ends normally. The foreach element then carries on, and its collected outputs tell you which items failed.
+
+**Errors in actions.** An action element behaves like any other element: it gets an exception path and the **Exception handling** setting. When you call an action from a script with `System.getModule(...)`, its errors are thrown into your script, so wrap the call in `try` and `catch` if you want to handle them there.
+
+**Clean up on the way out.** If a workflow creates something before it fails, such as a snapshot or a temporary VM, the default error handler is a good place to remove it. Keep cleanup steps simple and give them their own exception path, so a failed cleanup doesn't hide the original error.
+
+**Resume instead of restart.** A failed run can be resumed from the step that failed, once you've fixed the cause. Recipe 3.5 covers resuming and debugging failed runs.
+
+</Recipe>
+
+<Recipe type="see">
+
+- [3.3 Decisions, switches, and loops](../03-decisions-switches-loops/), for the loop this recipe makes fail.
+- Broadcom TechDocs (VCF 9): [Exception Handling](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/developing-workflows-with-vcf-operations-orchestrator/working-with-the-workflow-schema/vcfo-exception-handling.html), [Logical Flow of a Workflow](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/developing-workflows-with-vcf-operations-orchestrator/working-with-the-workflow-schema/links-and-bindings/vcfo-logical-flow-of-a-workflow.html), and [Define User Interaction Exception Behavior](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/developing-workflows-with-vcf-operations-orchestrator/vcfo-requesting-user-interactions-while-a-workflow-runs/vcfo-define-user-interaction-exception-behavior.html).
+- VMware Docs (vRealize Orchestrator 8.x): [Create exception bindings](https://docs.vmware.com/en/vRealize-Orchestrator/8.x/com.vmware.vrealize.orchestrator-dev.doc/GUID002836D5-145C-4845-BDC5-BF98839E7EC6.html) and [Define user interaction exception behavior](https://docs.vmware.com/en/vRealize-Orchestrator/8.x/com.vmware.vrealize.orchestrator-dev.doc/GUID-FDB037E9-8AA2-41F3-8DC4-0BFE23DF44C5.html).
+
+</Recipe>

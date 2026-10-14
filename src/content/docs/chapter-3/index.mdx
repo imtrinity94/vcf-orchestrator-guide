@@ -1,9 +1,47 @@
 ---
-title: "Visual programming"
-description: Chapter 3 of the VCF Orchestrator Guide. Coming soon.
+title: Visual programming
+description: Chapter 3 — drawing workflows from schema elements. Inputs, outputs, and variables; scriptable tasks and actions; decisions, switches, and loops; and error handling.
+sidebar:
+  label: Introduction
 ---
+import Opener from '../../../components/Opener.astro';
+import ThenNow from '../../../components/ThenNow.astro';
 import ComingSoon from '../../../components/ComingSoon.astro';
 
-The heart of Orchestrator: drawing workflows from schema elements, and building forms people can actually use.
+<Opener n={3} recipes={[
+  { title: 'Workflow basics: inputs, outputs, and variables', href: 'recipes/01-workflow-basics/' },
+  { title: 'Scriptable tasks and the schema canvas', href: 'recipes/02-scriptable-tasks/' },
+  { title: 'Decisions, switches, and loops', href: 'recipes/03-decisions-switches-loops/' },
+  { title: 'Handling errors and exceptions', href: 'recipes/04-handling-errors/' },
+]} />
 
-<ComingSoon topics={["Workflow basics: inputs, outputs, variables","Scriptable tasks and the schema canvas","Decisions, switches, and loops","Handling errors and exceptions","Resuming and debugging failed runs","Building input forms","Waiting tasks and custom events","Asynchronous and nested workflows","User interactions and approvals"]} />
+This is the heart of Orchestrator. A workflow is a drawing: elements on a canvas, joined by arrows, with data passed between them through named slots. Chapters 1 and 2 got an Orchestrator running and kept it healthy. From here on you build things with it.
+
+The recipes in this chapter build on each other. Recipe 3.1 makes a two-step workflow and explains how data moves through it. Recipe 3.2 adds a reusable action and the canvas moves you need every day. Recipe 3.3 makes the workflow branch, loop, and repeat itself over a list. Recipe 3.4 teaches it to fail well. Later recipes add forms, waits, sub-workflows, and people.
+
+## The example workflows
+
+Everything you build in this chapter goes in one folder and one action module, so it's easy to find, export, and delete afterwards:
+
+| Object | Name |
+|---|---|
+| Workflow folder | **VCF Orchestrator Guide/Chapter 3** |
+| Action module | `com.vcfguide.chapter3` |
+
+The examples act on the vCenter registered in recipe 1.9, `vc01.vmw.lab`, and only read from it. None of them changes a VM, so you can run them safely against a lab or a production vCenter. Scripts are plain ES5.1 JavaScript, the subset that Orchestrator's Rhino engine handles without surprises: `var` and `function`, with no arrow functions, `let`, `const`, or template strings.
+
+## What changed since vRO 7
+
+The ideas in this chapter are almost unchanged since vCO 5.5. The editor around them is new.
+
+<ThenNow
+  then="Build workflows in the Java client, launched with Java Web Start, with one window per workflow and tabs such as <b>General</b>, <b>Inputs</b>, <b>Outputs</b>, <b>Schema</b>, and <b>Presentation</b>."
+  now="Build workflows in the browser-based Orchestrator Client. The editor's tabs are <b>Summary</b>, <b>Variables</b>, <b>Inputs/Outputs</b>, <b>Schema</b>, <b>Input Form</b>, <b>Version History</b>, and <b>Audit</b>." />
+
+<ThenNow
+  then="Workflow variables are called <b>attributes</b>, and the run dialog is laid out in the <b>Presentation</b> tab."
+  now="Attributes are called <b>variables</b>, and the run form is designed in the <b>Input Form</b> tab, which can also call actions to fill in and check values." />
+
+## Still to come in this chapter
+
+<ComingSoon topics={["Resuming and debugging failed runs","Building input forms","Waiting tasks and custom events","Asynchronous and nested workflows","User interactions and approvals"]} />

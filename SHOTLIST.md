@@ -37,3 +37,20 @@ Lab: VCF 9.1, Orchestrator 9.1.1. Save PNGs at roughly 1400 px wide, crop to the
 | 2.13 | `ch02/fig-2-13.png` | SSH session on `vco01` after `deploy.sh`: `vco-app` pod **Limits** with `memory: 8G`, and `-XX:MaxRAMPercentage=50` | setenv.sh heap settings |
 | 2.14 | `ch02/fig-2-14.png` | SSH session on `vco01`: part of `vracli vro properties advanced`, `com.vmware.js.allow-local-process` visible | Control Center System Properties page |
 | 2.15 | `ch02/fig-2-15.png` | Orchestrator Client, run of action `com.vcfguide.chapter2/resolveHost` with `vc01.vmw.lab`, **Logs** tab showing the IP address | — |
+
+## Chapter 3
+
+| Figure | File | What to capture | Replaces (old cookbook) |
+|---|---|---|---|
+| 3.1 | `ch03/fig-3-1.png` | Workflow editor for **Describe a VM**, **Inputs/Outputs** tab: input `vm` (`VC:VirtualMachine`), output `summary` (`string`) | Java client IN and OUT tabs |
+| 3.2 | `ch03/fig-3-2.png` | **Schema** tab of **Describe a VM**: Start, **Read power state**, **Build summary**, End; **Build summary** selected, **Inputs/Outputs** tab with `vm` and `powerState` in, `summary` out | Java client Visual Binding tab |
+| 3.3 | `ch03/fig-3-3.png` | Run of **Describe a VM**, **Variables** tab with `vm`, `powerState` = `poweredOn`, and `summary` filled in | Java client workflow token variables |
+| 3.4 | `ch03/fig-3-4.png` | **Schema** tab of **List VMs by name**, **Promote** dialog for **findVmsByName**: `namePattern` → **Input**, `actionResult` → **Variable** | Java client "promote" pop-up |
+| 3.5 | `ch03/fig-3-5.png` | **Schema** tab of **List VMs by name**: Start, **findVmsByName** action element, **Describe each VM**, End, inside a workflow note | Schema with action element |
+| 3.6 | `ch03/fig-3-6.png` | Run of **List VMs by name** with `namePattern` = `^vc`, **Logs** tab: the match count, then one line per VM | Java client Logs tab |
+| 3.7 | `ch03/fig-3-7.png` | **Schema** tab of **Wait for VMware Tools**, switch selected, **Cases** tab: `powerState` equals `poweredOn` → **Check VMware Tools**, default → **Not powered on** | Switch element dialog |
+| 3.8 | `ch03/fig-3-8.png` | Full schema of **Wait for VMware Tools**: switch, **Tools running?** decision, **Try again?** custom decision with its true arrow looping back to **Check VMware Tools** | Loop schema |
+| 3.9 | `ch03/fig-3-9.png` | Run of **Describe several VMs** with three VMs, **Variables** tab: input array of three VMs, output `summary` array of three lines | Foreach element dialog |
+| 3.10 | `ch03/fig-3-10.png` | **Schema** tab of **Find a VM by name**: red dashed exception arrow from **Find the VM** to **Explain the failure** → **Thrown exception**; **Find the VM** selected, **General** tab, **Exception handling** = `errorMessage` | Java client Exceptions tab |
+| 3.11 | `ch03/fig-3-11.png` | Failed run of **Find a VM by name** with a missing name: run header in **Failed** state with the custom error, **Logs** tab with the error line | Failed workflow token |
+| 3.12 | `ch03/fig-3-12.png` | **Schema** tab of **Find a VM by name** with a **Default error handler** → **Log unexpected error** → **Thrown exception**, beside the main path | — |

@@ -1,0 +1,159 @@
+---
+title: Scriptable tasks and the schema canvas
+description: Recipe 3.2 — drag, link, and arrange elements on the schema canvas, call a reusable action from a workflow, and decide when a scriptable task is the right tool.
+sidebar:
+  label: 3.2 Scriptable tasks and the canvas
+  order: 2
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+The schema canvas is where you'll spend most of your time in Orchestrator. Recipe 3.1 dropped two scriptable tasks onto it. This recipe goes further: you write a small reusable **action**, call it from a workflow with an **action element**, promote its parameters with one click, and process its result in a scriptable task. Along the way you'll learn the canvas moves you need every day.
+
+The workflow you build, `List VMs by name`, finds every VM whose name matches a pattern and returns their names and power states.
+
+<Recipe type="ready">
+
+- The login, vCenter, and folder from recipe 3.1.
+- An action module called `com.vcfguide.chapter3`. You create it in step 1 if it doesn't exist yet.
+
+</Recipe>
+
+<Recipe type="how">
+
+**Write the action**
+
+1. Go to **Library** > **Actions** and click **New Action**. Enter:
+   - **Name**: `findVmsByName`
+   - **Module**: `com.vcfguide.chapter3` (type it to create the module)
+
+   Click **Create**.
+2. On the **Script** tab, set the **Return type** to `Array/VC:VirtualMachine` and add one input, `namePattern`, of type `string`.
+3. Enter this script, then click **Save**:
+
+```javascript title="com.vcfguide.chapter3/findVmsByName"
+// Returns every VM, in every registered vCenter, whose name matches namePattern.
+// namePattern is a regular expression, matched without regard to case.
+var pattern = new RegExp(namePattern, "i");
+var allVms = VcPlugin.getAllVirtualMachines();
+var matches = [];
+for (var i = 0; i < allVms.length; i++) {
+    if (pattern.test(allVms[i].name)) {
+        matches.push(allVms[i]);
+    }
+}
+System.log(matches.length + " of " + allVms.length + " VMs match /" + namePattern + "/");
+return matches;
+```
+
+<Verify>Check the 9.1.1 action editor: the <b>New Action</b> dialog fields, and that <b>Return type</b> and inputs are set on the <b>Script</b> tab rather than a separate tab.</Verify>
+
+**Start the workflow and call the action**
+
+4. Create a workflow called `List VMs by name` in **VCF Orchestrator Guide/Chapter 3**, as in recipe 3.1, steps 1–3.
+5. Open the **Schema** tab. In the palette on the left, type `findVms` in the search box. Drag **findVmsByName** onto the arrow between the start and end elements. Orchestrator wraps it in an **action element**.
+6. A banner at the top of the canvas says the element's inputs and outputs aren't bound yet. Click **Promote**. In the dialog:
+   - For the input `namePattern`, choose **Input**. Orchestrator creates a workflow input of the same name and type.
+   - For the output `actionResult`, choose **Variable**. Orchestrator creates a variable of type `Array/VC:VirtualMachine`.
+
+   Click **Promote**.
+7. On the **Variables** tab, rename the new variable from `actionResult` to `vms`. Its binding follows the new name.
+
+<Figure n="3.4" caption="Promoting the action's parameters to a workflow input and a variable."
+  capture="<b>Schema</b> tab of <b>List VMs by name</b>, <b>Promote</b> dialog open for the <b>findVmsByName</b> element, <code>namePattern</code> set to <b>Input</b> and <code>actionResult</code> set to <b>Variable</b>." />
+
+**Process the result in a scriptable task**
+
+8. On the **Inputs/Outputs** tab, add an output `vmNames` of type `Array/string`.
+9. Back on the **Schema** tab, drag a **Scriptable task** from the **Generic** group onto the arrow after the action element. Name it `Describe each VM`, bind `vms` as its input and `vmNames` as its output, and enter this script:
+
+```javascript title="List VMs by name — Describe each VM"
+vmNames = [];
+for (var i = 0; i < vms.length; i++) {
+    var line = vms[i].name + " (" + vms[i].runtime.powerState.value + ")";
+    vmNames.push(line);
+    System.log(line);
+}
+if (vmNames.length === 0) {
+    System.warn("No VM name matches the pattern");
+}
+```
+
+**Tidy the canvas**
+
+10. Drag a **Workflow note** from the **Generic** group behind the two elements and type `Find and describe VMs by name pattern`. Notes don't run. They label a part of the schema for the next reader.
+11. Use the zoom and **fit** controls at the bottom of the canvas to see the whole schema, then click **Save**.
+12. Run the workflow with `namePattern` set to `^vc` (or any pattern that matches VMs in your lab). The **Logs** tab shows the count from the action, then one line per VM. The **Variables** tab shows `vms` and `vmNames`.
+
+<Figure n="3.5" caption="The finished schema, with an action element, a scriptable task, and a note."
+  capture="<b>Schema</b> tab of <b>List VMs by name</b>: Start, <b>findVmsByName</b> action element, <b>Describe each VM</b> scriptable task, End, all inside a workflow note reading <i>Find and describe VMs by name pattern</i>." />
+
+<Figure n="3.6" caption="The run's log, with the count from the action and a line per VM."
+  capture="Workflow run of <b>List VMs by name</b> with <code>namePattern</code> = <code>^vc</code>, <b>Logs</b> tab showing <i>N of M VMs match /^vc/</i> followed by one line per VM." />
+
+<Verify>Confirm the <b>Promote</b> banner and dialog on 9.1.1, the default output name <code>actionResult</code>, that renaming a variable on the <b>Variables</b> tab keeps the element's binding, and the names of the zoom and fit controls on the canvas.</Verify>
+
+</Recipe>
+
+<Recipe type="works">
+
+The canvas is a picture of the workflow's **logical flow**: which element runs after which. Every element has one normal way out, drawn as a solid arrow, and most can also have an error path (recipe 3.4). When you drop an element onto an existing arrow, Orchestrator splits the arrow and inserts the element. To join two elements by hand, drag from the connector on the edge of one element to the other. To remove a link, select it and delete it.
+
+The palette offers three kinds of thing to drag:
+
+- **Elements**, in the **Generic** group: the building blocks such as scriptable tasks, decisions, switches, loops, waits, and the start and end elements.
+- **Predefined tasks**, in the **Basic**, **Log**, and **Network** groups: small ready-made scripts you can't edit, such as writing a log line or sending a notification.
+- **Workflows** and **actions** from the library. A workflow becomes a **workflow element**, which runs it as a sub-workflow and waits for it to finish. An action becomes an **action element**.
+
+An action element and a scriptable task both run a script, but they're stored differently. A scriptable task's script lives inside the workflow. Nobody else can call it, and copying it means copying text. An action lives once in the library, under its module, and any workflow, action, or form can call it. In a script you call it like this:
+
+```javascript title="Calling an action from any script"
+var vms = System.getModule("com.vcfguide.chapter3").findVmsByName("^vc");
+```
+
+**Promote** saves you from declaring parameters by hand. For each parameter of the element, it creates a workflow input, output, or variable with the same name and type, and binds it. You can also skip a parameter and bind it yourself later.
+
+`System.log`, `System.warn`, and `System.error` write to the run's log at different levels. The log is kept with the run, so it's the first place to look when a run goes wrong. For a line you need to keep after the run's history is purged, use `Server.log` instead, which writes an event to Orchestrator's event log.
+
+<Verify>Confirm on 9.1.1 where <code>Server.log</code> entries appear for a run (an <b>Events</b> tab on the run, or only in the audit log), and the name of each palette group.</Verify>
+
+<ThenNow
+  then="Drag elements from the palette onto the schema in the Java client, then link them by switching to the connector tool. Scripts are always JavaScript."
+  now="Drop elements straight onto an arrow in the browser and they link themselves. A scriptable task's <b>Scripting</b> tab can also run Python, Node.js, or PowerShell." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**Scriptable task or action?** A rule of thumb: if the script is more than about 20 lines, if you'd write it twice, or if you want to test it on its own, make it an action. Keep scriptable tasks for glue: reshaping one element's output into the next one's input, as in step 9.
+
+**Other languages.** The **Scripting** tab of a scriptable task lets you choose a different runtime, such as Python, Node.js, or PowerShell, instead of JavaScript. Non-JavaScript scripts run in a separate container with their own handler function and are noticeably slower to start. Chapter 4 covers them, and the environments that hold their libraries.
+
+<Verify>Check where the runtime is chosen for a scriptable task on 9.1.1, and whether every runtime is offered on a standalone appliance authenticated with vSphere. On 8.x, non-JavaScript runtimes needed an Aria Automation licence.</Verify>
+
+**Big inventories.** `VcPlugin.getAllVirtualMachines()` returns every VM in every registered vCenter, which is slow when there are thousands. The function also accepts an XPath filter, so the vSphere plug-in does the matching for you:
+
+```javascript title="Filtering in the plug-in"
+var vms = VcPlugin.getAllVirtualMachines(null, "xpath:name[starts-with(., 'vc')]");
+```
+
+<Verify>Test the XPath form of <code>VcPlugin.getAllVirtualMachines</code> on 9.1.1, including which XPath functions it supports.</Verify>
+
+**Keyboard and mouse.** Select several elements by dragging a box around them on an empty part of the canvas. Copy and paste works within a workflow and between workflows, which is quicker than re-creating a scriptable task with its bindings.
+
+**Validate before you save.** The editor's **Validate** button checks for unbound parameters, unreachable elements, and missing end elements. Fix what it reports before you run the workflow.
+
+<Verify>Confirm that the 9.1.1 workflow editor has a <b>Validate</b> button, and whether it validates automatically on save.</Verify>
+
+</Recipe>
+
+<Recipe type="see">
+
+- [3.1 Workflow basics](../01-workflow-basics/), for inputs, outputs, variables, and bindings.
+- [3.3 Decisions, switches, and loops](../03-decisions-switches-loops/), for elements that change the path through the schema.
+- Broadcom TechDocs (VCF 9): [Schema Elements and Schema Element Properties](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/developing-workflows-with-vcf-operations-orchestrator/working-with-the-workflow-schema/vcfo-schema-elements-and-schema-element-properties.html) and [Building a Workflow in the Workflow Schema](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/developing-workflows-with-vcf-operations-orchestrator/working-with-the-workflow-schema/vcfo-building-a-workflow-in-the-workflow-schema.html).
+- VMware Docs (vRealize Orchestrator 8.x): [Schema elements](https://docs.vmware.com/en/vRealize-Orchestrator/8.x/com.vmware.vrealize.orchestrator-dev.doc/GUIDE8B02D5B-0ED3-40B5-9180-4F181BD8BCDD.html) and [Promote input and output parameters](https://docs.vmware.com/en/vRealize-Orchestrator/8.x/com.vmware.vrealize.orchestrator-dev.doc/GUID-8E45F69D-51CC-4C64-924A-CCFDE03AF967.html).
+
+</Recipe>
