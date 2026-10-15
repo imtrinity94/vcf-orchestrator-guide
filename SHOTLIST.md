@@ -17,3 +17,16 @@ Lab: VCF 9.1, Orchestrator 9.1.1. Save PNGs at roughly 1400 px wide, crop to the
 | 1.9 | `ch01/fig-1-9.png` | Orchestrator Client dashboard with the navigation fully expanded | Orchestrator home page |
 | 1.10 | `ch01/fig-1-10.png` | Run dialog of **Add a vCenter Server instance**, connection properties page | — |
 | 1.11 | `ch01/fig-1-11.png` | Administration > Inventory > vSphere vCenter Server, `vc01.vmw.lab` expanded | — |
+
+## Chapter 2
+
+| Figure | File | What to capture | Replaces (old cookbook) |
+|---|---|---|---|
+| 2.1 | `ch02/fig-2-1.png` | vSphere web console of `vco01`, logged in as `root`, after `/usr/bin/toggle-ssh enable`, showing its output | VAMI Admin tab, SSH service enabled |
+| 2.2 | `ch02/fig-2-2.png` | SSH session on `vco01`: `vracli certificate ingress --list \| openssl x509 -noout -subject -issuer -dates`, lab CA as issuer | Control Center SSL certificate page |
+| 2.3 | `ch02/fig-2-3.png` | Browser certificate viewer for `https://vco01.vmw.lab`: chain up to the lab root CA and the **Subject Alternative Name** field | — |
+| 2.4 | `ch02/fig-2-4.png` | **Administration > Inventory > Configuration > Keystores > Dunes**, signing certificate selected, subject and validity dates visible | Control Center Package Signing Certificate page |
+| 2.5 | `ch02/fig-2-5.png` | Run dialog of **Generate Package Signing Certificate**, **Common name** `VMW Lab Orchestrator`, signature algorithm drop-down open | — |
+| 2.6 | `ch02/fig-2-6.png` | Diagram (to be drawn): clients → `vco.vmw.lab` load balancer → TCP 443 to `vco01`/`vco02`/`vco03`; one Kubernetes cluster across the nodes, a PostgreSQL replica on each, one primary | Orchestrator cluster figure |
+| 2.7 | `ch02/fig-2-7.png` | SSH session on `vco01`: `kubectl -n prelude get nodes` with all three nodes `Ready` | Control Center cluster status |
+| 2.8 | `ch02/fig-2-8.png` | Load balancer pool status (NSX in the lab) for `vco.vmw.lab`, all three members up | — |
