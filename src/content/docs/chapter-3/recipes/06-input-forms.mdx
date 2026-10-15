@@ -1,0 +1,214 @@
+---
+title: Building input forms
+description: Recipe 3.6 — design a workflow's run form on the Input Form tab, with tabs, drop-downs filled by actions, conditional fields, constraints, and a validation action.
+sidebar:
+  label: 3.6 Input forms
+  order: 6
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+Every input you declare turns into a field on the run form. Left alone, the form is a plain list of names and text boxes in the order you declared them. That's fine for you, but it's not fine for the people who'll run your workflow from the Orchestrator Client or from a VCF Automation catalog. They need labels, sensible defaults, choices instead of free text, and a clear message when they get something wrong, before the run starts.
+
+This recipe builds `Report VMs`, a read-only report with five inputs, and shapes its form on the **Input Form** tab: two tabs, a drop-down filled by an action, a fixed list of choices, a field that only appears when it's needed, and a validation action that catches a bad regular expression before the run starts.
+
+<Recipe type="ready">
+
+- The action `com.vcfguide.chapter3/findVmsByName` from recipe 3.2.
+- The folder **VCF Orchestrator Guide/Chapter 3** and the action module `com.vcfguide.chapter3`.
+- If you want to see the form in VCF Automation, a project with the workflow published to the catalog. That's covered in Chapter 8. Everything here works from the Orchestrator Client alone.
+
+</Recipe>
+
+<Recipe type="how">
+
+**Write two actions for the form**
+
+1. In **Library** > **Actions**, create the action `listVcenterNames` in the module `com.vcfguide.chapter3`. Give it no inputs and the return type `Array/string`:
+
+```javascript title="com.vcfguide.chapter3/listVcenterNames"
+// Returns the name of every vCenter registered in the vSphere plug-in, sorted.
+var connections = VcPlugin.allSdkConnections;
+var names = [];
+for (var i = 0; i < connections.length; i++) {
+    names.push(connections[i].name);
+}
+names.sort();
+return names;
+```
+
+2. Create a second action, `validateNamePattern`, with one input `namePattern` of type `string` and the return type `string`:
+
+```javascript title="com.vcfguide.chapter3/validateNamePattern"
+// Returns an error message when namePattern is not a valid regular expression,
+// and null when it is. An empty pattern is left to the Required constraint.
+if (namePattern === null || namePattern === "") {
+    return null;
+}
+try {
+    var test = new RegExp(namePattern);
+} catch (e) {
+    return "'" + namePattern + "' is not a valid regular expression: " + e.message;
+}
+return null;
+```
+
+<Verify>Confirm that <code>VcSdkConnection.name</code> on 9.1.1 returns the vCenter's host name (for example <code>vc01.vmw.lab</code>), and that it's the same value as <code>vm.sdkConnection.name</code> used in step 4.</Verify>
+
+**Create the workflow**
+
+3. Create the workflow `Report VMs` in **VCF Orchestrator Guide/Chapter 3** with these inputs and one output:
+
+| Name | Type | Direction |
+|---|---|---|
+| `vcenterName` | `string` | Input |
+| `namePattern` | `string` | Input |
+| `powerState` | `string` | Input |
+| `limitResults` | `boolean` | Input |
+| `maxResults` | `number` | Input |
+| `vmNames` | `Array/string` | Output |
+
+4. On the **Schema** tab, add one scriptable task called `Find matching VMs`, with all five inputs in and `vmNames` out:
+
+```javascript title="Report VMs — Find matching VMs"
+var candidates = System.getModule("com.vcfguide.chapter3").findVmsByName(namePattern);
+vmNames = [];
+for (var i = 0; i < candidates.length; i++) {
+    var vm = candidates[i];
+    if (vm.sdkConnection.name !== vcenterName) {
+        continue;
+    }
+    var state = vm.runtime.powerState.value;
+    if (powerState !== "any" && state !== powerState) {
+        continue;
+    }
+    vmNames.push(vm.name + " (" + state + ")");
+    // maxResults only counts when the person ticked "Limit the results"
+    if (limitResults && maxResults > 0 && vmNames.length >= maxResults) {
+        System.log("Stopped at " + maxResults + " results");
+        break;
+    }
+}
+System.log(vmNames.length + " VMs in " + vcenterName + " match");
+```
+
+5. Click **Save**, then **Run**. The form lists the five inputs by name, as plain boxes in the order you declared them. Close it without running. That's the starting point.
+
+**Lay out the form**
+
+6. Open the **Input Form** tab. The designer has three parts: the elements and inputs on the left, the form canvas in the middle, and the properties of the selected field on the right.
+7. Rename the first tab of the form `What to find`. Add a second tab and call it `Options`. Drag `limitResults` and then `maxResults` onto the `Options` tab. Leave the other three on `What to find`, in the order `vcenterName`, `namePattern`, `powerState`.
+
+<Figure n="3.18" caption="The Input Form tab, with the form split over two tabs."
+  capture="<b>Input Form</b> tab of <b>Report VMs</b>: element palette on the left, the form canvas with the tabs <b>What to find</b> and <b>Options</b>, and the properties pane on the right showing the <b>Appearance</b>, <b>Values</b>, and <b>Constraints</b> tabs for <code>vcenterName</code>." />
+
+**Fill a drop-down from an action**
+
+8. Select `vcenterName`. On the **Appearance** tab, set **Label** to `vCenter` and **Display type** to **Dropdown**.
+9. On the **Values** tab, open **Value options** and set its source to **External source**. Choose the action `listVcenterNames`.
+10. On the **Constraints** tab, turn on **Required**.
+
+<Figure n="3.19" caption="A drop-down whose choices come from an action."
+  capture="Properties of <code>vcenterName</code>, <b>Values</b> tab: <b>Value options</b> set to <b>External source</b> with the action <code>com.vcfguide.chapter3/listVcenterNames</code> selected." />
+
+**Offer a fixed list of choices**
+
+11. Select `powerState`. Set **Label** to `Power state` and **Display type** to **Dropdown**.
+12. On the **Values** tab, leave **Value options** on **Constant** and enter four values: `any`, `poweredOn`, `poweredOff`, and `suspended`. Set **Default value** to `any`.
+
+<Verify>Check how constant value options are entered on 9.1.1: one per line, comma-separated, or with a separate label for each value.</Verify>
+
+**Guide free text with a default, help, and constraints**
+
+13. Select `namePattern`. Set **Label** to `VM name pattern` and add **Custom help**: `A regular expression, matched without regard to case. Use .* for every VM.`
+14. On the **Values** tab, set **Default value** to `.*`. On the **Constraints** tab, turn on **Required**.
+
+**Show a field only when it's needed**
+
+15. Select `limitResults`. Set **Label** to `Limit the results`, and check that **Display type** is **Checkbox**, the usual display for a `boolean`.
+16. Select `maxResults`. Set **Label** to `Maximum number of VMs`. On the **Appearance** tab, change the source of **Visibility** to **Conditional value**: show the field when `limitResults` equals `true`.
+17. On the **Values** tab, set **Default value** to `50` and **Step** to `10`. On the **Constraints** tab, set **Minimum value** to `1` and **Maximum value** to `500`.
+
+   Hiding a field doesn't empty it, so `maxResults` may still arrive with its default when the box isn't ticked. That's why the script in step 4 checks `limitResults` before it uses `maxResults`.
+
+<Figure n="3.20" caption="A field that only appears when a checkbox is ticked."
+  capture="Properties of <code>maxResults</code>, <b>Appearance</b> tab: <b>Visibility</b> set to <b>Conditional value</b>, with the condition <code>limitResults</code> equals <code>true</code>. The <b>Options</b> tab of the form canvas shows <b>Limit the results</b> above <b>Maximum number of VMs</b>." />
+
+<Verify>Walk steps 15–17 on 9.1.1. Confirm the display type name <b>Checkbox</b>, how a conditional visibility rule is built (the condition editor and its operators), and whether a hidden field still submits its default value.</Verify>
+
+**Check the whole form before the run starts**
+
+18. Open the **Validations** tab of the input form. Drag an **Orchestrator validation** onto it, enter the label `Name pattern is a valid regular expression`, and choose the action `validateNamePattern`.
+19. Click **Save**.
+
+<Figure n="3.21" caption="A validation action that checks the form before it's submitted."
+  capture="<b>Input Form</b> tab of <b>Report VMs</b>, <b>Validations</b> tab, with one <b>Orchestrator validation</b> labelled <i>Name pattern is a valid regular expression</i> and the action <code>com.vcfguide.chapter3/validateNamePattern</code> selected." />
+
+**Try it**
+
+20. Click **Run**. The form opens on `What to find`. **vCenter** is a drop-down listing `vc01.vmw.lab`, **VM name pattern** already holds `.*`, and **Power state** shows `any`. On `Options`, **Maximum number of VMs** is hidden until you tick **Limit the results**.
+21. Enter `[vc` as the pattern and click **Run**. The form refuses, and shows the message from `validateNamePattern`. Change the pattern to `^vc` and run it again.
+
+<Figure n="3.22" caption="The finished form, refusing an invalid pattern."
+  capture="Run form of <b>Report VMs</b>, <b>What to find</b> tab: <b>vCenter</b> drop-down with <code>vc01.vmw.lab</code>, <b>VM name pattern</b> = <code>[vc</code>, <b>Power state</b> = <code>any</code>, and the validation message from <code>validateNamePattern</code> shown on the form." />
+
+<Verify>Walk steps 6–21 on 9.1.1 and note the exact labels: the default name of the first form tab and how tabs are added, the <b>Display type</b> value <b>Dropdown</b>, the value source names <b>Constant</b> and <b>External source</b>, <b>Custom help</b>, <b>Step</b>, <b>Minimum value</b> and <b>Maximum value</b>, the <b>Validations</b> tab and <b>Orchestrator validation</b>, and where the validation message appears on the run form.</Verify>
+
+</Recipe>
+
+<Recipe type="works">
+
+The form isn't part of the schema. It's a separate layer, stored with the workflow, that describes how each input is presented and checked. Only workflow inputs can appear on it. Variables never do. The designer also offers generic elements, such as text, drop-downs, and password boxes, that don't match an input. You can bind them to inputs or use them for the form's own logic.
+
+Each input's properties are split over three tabs:
+
+- **Appearance**: how the field looks and when it's shown. **Label**, **Display type**, **Visibility**, **Read-only**, and **Custom help**.
+- **Values**: what it holds before the person touches it, and what they can choose from. **Default value**, **Value options**, and **Step**.
+- **Constraints**: what counts as a valid value. **Required**, **Regular expression**, **Minimum value** and **Maximum value** (a number's value, or a string's length), and **Match text box**, which makes a field equal another, as for a password typed twice.
+
+Most properties can take their value from more than one source. **Constant** is a fixed value. **External source** calls an action, and the designer only offers actions whose return type fits the field. **Bind field** copies another field. **Conditional value** picks a value from rules on other fields, as `maxResults` does for its visibility. **Computed value** builds a value with simple operators. Computed values aren't available for plug-in types such as `AD:UserGroup`.
+
+An action called by the form runs on the Orchestrator server, while the form is open. When its inputs are bound to other fields, it runs again whenever one of them changes, but only once all the fields it depends on hold valid values. That's how cascading drop-downs work: choose a vCenter, and a second drop-down bound to `vcenterName` refreshes with that vCenter's clusters.
+
+A validation on the **Validations** tab is different. It runs when the person submits the form, and it checks the form as a whole. Orchestrator passes it the fields whose names match its inputs, which is why `validateNamePattern`'s input must be called `namePattern`. If it returns a message, the form shows it and refuses to submit. If it returns nothing, the form goes through.
+
+<ThenNow
+  then="Lay out the run dialog on the workflow's <b>Presentation</b> tab in the Java client, with display groups, input steps, and properties such as <code>mandatory</code> and <code>Predefined answers</code>, often written as OGNL expressions."
+  now="Design the form on the <b>Input Form</b> tab, with tabs, a drag-and-drop canvas, and properties grouped as <b>Appearance</b>, <b>Values</b>, and <b>Constraints</b>. Logic is written as actions, not expressions." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**Value options or default value?** A drop-down's choices come from **Value options**. A common mistake is to put the action under **Default value** instead, which leaves the drop-down empty. Broadcom KB 428466 describes exactly that.
+
+**Labels and values.** To show one thing and submit another, such as a cluster's name while the workflow receives its ID, have the action return `Array/Properties`, each with a `label` key for the text shown and a `value` key for the value submitted.
+
+<Verify>Confirm that the 9.1.1 Orchestrator input form accepts <code>Array/Properties</code> with <code>label</code> and <code>value</code> keys for a string drop-down. The behaviour is documented for VCF Automation custom forms and confirmed in a Broadcom KB, but not on an Orchestrator page.</Verify>
+
+**Keep form actions fast.** The person waits while each action runs, and a chain of dependent actions adds up. Keep them to a few seconds. Avoid marking a field **Required** only because an action uses it, and check inputs for `null` in the action: an empty field bound to an action input is passed as `null`, not as an empty string.
+
+**Return an empty choice in dependent lists.** When a dependent list's action returns a single value, the form can keep the old selection after the field it depends on changes. Broadcom KB 394722 calls this expected behaviour and suggests returning an extra empty value.
+
+**Regular expressions must suit Java and JavaScript.** A **Regular expression** constraint must be valid in both syntaxes. A pattern that only one accepts makes the form show "Some data cannot be retrieved" (Broadcom KB 314888).
+
+**Forms in VCF Automation.** When you publish a workflow to the VCF Automation catalog, its form comes along, and you can refine it there with VCF Automation's custom form designer. In VCF Automation 9.0.x, Broadcom KB 450158 reports that a **Multi value picker** fed by an action fails in the catalog with "Error getting external data 403". Use a **Dropdown** or **Dual list** until it's fixed. Chapter 8 covers publishing.
+
+<Verify>Confirm in VCF Automation 9.1 that a catalog item made from <code>Report VMs</code> starts with this form, and whether KB 450158 still applies.</Verify>
+
+**Don't trust the form alone.** A REST client or a parent workflow can run `Report VMs` without ever seeing the form. If an input must never be wrong, check it in the workflow as well, as recipe 3.4 does.
+
+</Recipe>
+
+<Recipe type="see">
+
+- [3.1 Workflow basics](../01-workflow-basics/), for inputs, variables, and outputs.
+- [3.5 Resuming and debugging failed runs](../05-resume-and-debug/), for the same `[vc` mistake caught after the run starts.
+- Broadcom TechDocs (VCF 9): [Defining Variables and Parameters](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/developing-workflows-with-vcf-operations-orchestrator/vcfo-defining-variables-and-parameters.html) and [Key Workflow Concepts](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/developing-workflows-with-vcf-operations-orchestrator/vcfoo-key-workflow-concepts.html).
+- Broadcom TechDocs (Aria Automation 8.18): [Input Form Designer](https://techdocs.broadcom.com/us/en/vmware-cis/aria/aria-automation/8-18/using-the-vrealize-orchestrator-client-8-18/managing-workflows-in-vro/vrealize-orchestrator-input-form-designer.html).
+- Broadcom KB: [428466 — Custom form drop-down shows no values](https://knowledge.broadcom.com/external/article/428466/vcf-orchestrator-custom-form-dropdown-fa.html), [394722 — Dependent fields keep old values](https://knowledge.broadcom.com/external/article/394722/custom-forms-in-aria-orchestrator-retain.html), [314888 — Regular expression constraints](https://knowledge.broadcom.com/external/article/314888/custom-forms-with-an-external-action-tha.html), [410656 — Actions with the Any return type](https://knowledge.broadcom.com/external/article/410656/any-type-as-return-type-for-actions-used.html), and [450158 — Error 403 in the VCF Automation catalog](https://knowledge.broadcom.com/external/article/450158/error-403-when-requesting-catalog-item-w.html).
+- VMware Cloud Foundation blog: [Good practices for developing custom forms](https://blogs.vmware.com/cloud-foundation/2024/10/11/good-practices-for-developing-custom-forms-with-vmware-cloud-foundation-automation/).
+
+</Recipe>

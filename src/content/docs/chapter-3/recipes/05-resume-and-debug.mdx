@@ -1,0 +1,133 @@
+---
+title: Resuming and debugging failed runs
+description: Recipe 3.5 — let a failed run pick up where it stopped, step through a workflow with breakpoints, and replay a finished run element by element.
+sidebar:
+  label: 3.5 Resuming and debugging
+  order: 5
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+Recipe 3.4 made workflows fail well. This recipe is about what you do after a run has failed. Orchestrator gives you three tools. **Resume from failed** keeps a failed run alive, so you can fix the cause, correct an input, and carry on from the step that broke, without redoing the steps that worked. The **debugger** pauses a run at the elements and script lines you choose, so you can see the values each slot holds and step through it. **Run replay** records each step of a run, so you can see afterwards what every element received and changed.
+
+You practise all three on `List VMs by name` from recipe 3.2. It only reads from vCenter, so you can fail it, resume it, and step through it as often as you like.
+
+<Recipe type="ready">
+
+- The workflow `List VMs by name` and the action `com.vcfguide.chapter3/findVmsByName` from recipe 3.2.
+- A login with a role that can edit workflows. To switch on run replay you also need an administrator login.
+- A lab where you can afford to experiment. Broadcom's own guidance is to do script debugging outside production.
+
+</Recipe>
+
+<Recipe type="how">
+
+**Let the workflow resume after a failure**
+
+1. Open `List VMs by name` and stay on the **Summary** tab.
+2. Set **Resume workflow from failed behavior** to **Enabled**, then click **Save**.
+
+<Figure n="3.13" caption="Resume from failed, switched on for one workflow."
+  capture="Workflow editor for <b>List VMs by name</b>, <b>Summary</b> tab, with <b>Resume workflow from failed behavior</b> set to <b>Enabled</b> and its drop-down open, showing <b>System default</b>, <b>Enabled</b>, and <b>Disabled</b>." />
+
+**Make it fail, then resume it**
+
+3. Click **Run** and enter `[vc` as `namePattern`. The opening bracket is never closed, so this isn't a valid regular expression, and `new RegExp` in the action throws an error.
+4. Watch the run. Instead of ending as **Failed**, it stops in the **Waiting** state at the action element.
+5. Click **Answer** at the top right of the run. In the dialog, choose **Resume**.
+6. Open the **Parameters** tab of the dialog and change `namePattern` to `^vc`. Click **Answer**.
+7. The run carries on from the action element and ends as **Completed**. Its **Logs** tab shows the error from the first attempt, then the match count and the VM lines from the second.
+
+<Figure n="3.14" caption="Resuming a failed run with a corrected input."
+  capture="Run of <b>List VMs by name</b> in the <b>Waiting</b> state after a failure. The <b>Answer</b> dialog is open with <b>Resume</b> selected, and its <b>Parameters</b> tab shows <code>namePattern</code> changed from <code>[vc</code> to <code>^vc</code>." />
+
+8. To give up on a waiting run instead, click **Answer** and choose **Cancel**. The run then ends as **Canceled**.
+
+<Verify>Walk steps 2–8 on 9.1.1. Confirm the label <b>Resume workflow from failed behavior</b> and its three options, that the run's state reads <b>Waiting</b> after the failure, the <b>Answer</b> button, the <b>Resume</b> and <b>Cancel</b> choices, and that the <b>Parameters</b> tab lets you edit the workflow input (and whether it also shows variables).</Verify>
+
+**Pause the workflow at a breakpoint**
+
+9. Open the **Schema** tab of `List VMs by name`. Select the scriptable task `Describe each VM` and click the breakpoint button at its top-left corner. A marker shows that the element has a breakpoint.
+10. Click **Debug** instead of **Run**, enter `^vc` as `namePattern`, and click **Run**.
+11. The run executes the action element, then pauses before `Describe each VM`. The element is highlighted on the canvas.
+12. Open the **Variables** tab of the debugger. It shows `namePattern`, the `vms` array the action returned, and `vmNames`, still empty. You can change a value here before the run carries on, for example to try the scriptable task on a shorter array.
+
+<Figure n="3.15" caption="A debug run paused at a schema breakpoint."
+  capture="Debug run of <b>List VMs by name</b> paused at <b>Describe each VM</b>, element highlighted on the canvas with its breakpoint marker, <b>Variables</b> tab showing <code>namePattern</code> = <code>^vc</code> and the <code>vms</code> array expanded." />
+
+**Step through the script**
+
+13. Still in the debug run, select `Describe each VM` and open its **Scripting** tab. Click to the left of the line number of `vmNames.push(line);` to add a script breakpoint. A red circle marks it.
+14. Click **Step into**. The debugger enters the script and stops at the breakpoint, in the first pass of the loop.
+15. Open the **Debugger** tab and add the watch expressions `i` and `line`. Click **Step over** a few times, or **Continue** to run to the breakpoint again on the next pass. The watched values change each time.
+16. Click on the red circle to make the run skip that breakpoint. It turns into a green triangle. Click **Continue**, and the run goes on to the end.
+
+<Figure n="3.16" caption="A script breakpoint, with watch expressions in the Debugger tab."
+  capture="Debug run of <b>List VMs by name</b>, <b>Describe each VM</b> selected, <b>Scripting</b> tab with a red breakpoint circle on the <code>vmNames.push(line);</code> line and the current line highlighted; <b>Debugger</b> tab with the watch expressions <code>i</code> and <code>line</code> and their values." />
+
+<Verify>Walk steps 9–16 on 9.1.1. Confirm where the element breakpoint button sits, that <b>Debug</b> asks for inputs and then <b>Run</b>, the controls <b>Continue</b>, <b>Step into</b>, <b>Step over</b>, and <b>Step return</b>, how watch expressions are added on the <b>Debugger</b> tab, and that clicking a breakpoint turns it into a green triangle that the run ignores.</Verify>
+
+**Record runs for replay**
+
+17. As an administrator, go to **System Settings** > **Performance and Features**. Turn on **Run Replay Status** and click **Save**. The server can take up to five minutes to pick up the change.
+18. Run `List VMs by name` normally, with `^vc`.
+19. Go to **Activity** > **Workflow Runs** and open the run. The left side of the run now lists each element that ran. Select `findVmsByName`, then `Describe each VM`. For each one, the **Variables** tab shows what the element changed, and the **Logs** tab shows what it wrote.
+
+<Figure n="3.17" caption="Replaying a finished run, one element at a time."
+  capture="<b>Activity</b> > <b>Workflow Runs</b>, a run of <b>List VMs by name</b> with run replay on. The left-hand list shows <b>findVmsByName</b> and <b>Describe each VM</b>; <b>findVmsByName</b> is selected and its <b>Variables</b> tab shows the <code>vms</code> array it set." />
+
+<Verify>Confirm on 9.1.1 the path <b>System Settings</b> > <b>Performance and Features</b>, the <b>Run Replay Status</b> toggle, and the layout of a replayed run in <b>Activity</b> > <b>Workflow Runs</b>.</Verify>
+
+</Recipe>
+
+<Recipe type="works">
+
+**Resume from failed** changes what happens when an error reaches the top of the workflow, after any exception path and default error handler have had their chance (recipe 3.4). Without it, the run ends as **Failed** and its token is closed. With it, Orchestrator keeps the token open, keeps every slot's value, and puts the run in the **Waiting** state, as if it were waiting for an answer from a person. Answering **Resume** runs the failed element again, with the values from the **Parameters** tab, and the run carries on from there. Everything before the failed element isn't repeated.
+
+<Verify>Confirm that resuming runs the failed element again from its start, rather than the element after it. Broadcom's documentation says the run resumes "from the last failed activity" but doesn't say so in as many words.</Verify>
+
+Each workflow has its own setting. **Enabled** and **Disabled** apply to that workflow only. **System default** follows the server's default, which is off, and that's the setting the library workflows ship with. A waiting failed run doesn't stay open for ever: if nobody answers it within the resume timeout, it times out and can't be resumed any more. The timeout is the system property `com.vmware.vco.engine.execute.resume-from-failed.timeout-sec`, 86400 seconds (24 hours) by default. On the standalone appliance you change it with `vracli vro properties set`, as in recipe 2.8.
+
+<Verify>Confirm on 9.1.1 that <code>vracli vro properties set -k com.vmware.vco.engine.execute.resume-from-failed.timeout-sec -v …</code> changes the timeout. Broadcom's 9.0 page describes setting it under a <b>System Properties</b> page, and documents no separate property that turns resume on for every workflow.</Verify>
+
+The **debugger** runs the same workflow engine as a normal run, but stops before each element that has a breakpoint and waits for you. Its controls work at two levels. On the canvas, **Step over** runs the current element and stops at the next one, **Step into** goes inside it (into its script, or into the schema of a sub-workflow), and **Step return** finishes the current level and stops in the one above. **Continue** runs to the next breakpoint. Inside a script, the same controls move line by line. A breakpoint on a workflow element opens the child workflow's schema when the run reaches it, so you can debug parent and child in one session.
+
+**Run replay** costs a little on every run, because Orchestrator writes each element's start and end time, the variables it changed, and its log lines to the database as the run goes. The data belongs to the run, so it's deleted when the run is.
+
+<ThenNow
+  then="Find a run under its workflow in the Java client's tree, open its logs, and work out from the last log line which element failed. To try again, start a new run from the beginning."
+  now="Open the run under <b>Activity</b> > <b>Workflow Runs</b>, where run replay shows each element's variables and logs, and resume a failed run from the element that failed." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**Only resume what's safe to repeat.** Resuming runs the failed element again. That's harmless for an element that reads, like the action here. It's not harmless for an element that creates a VM, posts to a ticketing system, or sends a mail and then fails on its last line. Enable resume on workflows whose steps are safe to repeat, or split the risky step so the part that changes something runs last.
+
+**Resume and exception paths don't mix.** If an element's exception path catches the error, the run never reaches the top as a failure, so there's nothing to resume. A workflow that ends in a **Thrown exception** element, as in recipe 3.4, fails at that element, and resuming it only throws the same exception again. Use resume on workflows where an uncaught error should be fixed and retried, and exception paths where the workflow can handle the error itself.
+
+**The 9.1.0 debugger and regular expressions.** Broadcom KB 446523 describes the 9.1.0 debugger hanging on "loading", or running the server out of memory, when the paused script holds a JavaScript `RegExp` or the result of `System.getContext()`. The action `findVmsByName` holds a `RegExp` in `pattern`, so on 9.1.0 don't step into it. Set breakpoints in the scriptable task instead, or debug with `System.debug` and `System.log` lines.
+
+<Verify>Check whether KB 446523 is fixed in 9.1.1, by stepping into <code>findVmsByName</code> in the lab.</Verify>
+
+**Debugging actions.** An action has its own **Debug** button in **Library** > **Actions**, with the same breakpoints and controls. The debugger only works with the default JavaScript runtime. For Python, Node.js, and PowerShell scripts, write log lines instead.
+
+<Verify>Confirm that the 9.1.1 action editor has a <b>Debug</b> button. The documentation for it is from the 8.x client.</Verify>
+
+**Debug logging that you leave in.** `System.debug("…")` writes a log line at debug level. It costs almost nothing and you can filter it out on the **Logs** tab, so it's a good place for the values you'd otherwise only see in the debugger. Keep in mind that `System.*` log lines aren't persistent: Broadcom's documentation says they're lost when the server restarts. `Server.log` lines are stored in the database, so use them for anything you must still be able to read next week.
+
+**Don't debug in production.** A paused debug run holds its token, its variables, and anything it has locked in a target system. Copy the workflow and its inputs to a lab, or use run replay on the production run to see what happened.
+
+</Recipe>
+
+<Recipe type="see">
+
+- [3.4 Handling errors and exceptions](../04-handling-errors/), for exception paths and the default error handler.
+- [2.8 Setting system properties that matter](../../../chapter-2/recipes/08-system-properties/), to change the resume timeout.
+- Broadcom TechDocs (VCF 9): [Resuming a Failed Workflow Run](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/developing-workflows-with-vcf-operations-orchestrator/vcfo-resuming-a-failed-workflow-run.html), [Debug a Workflow by Schema Element](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/troubleshooting-in-the-vrealize-orchestrator-operations-client/debug-workflow-by-schema-element.html), [Workflow Script Debugging](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/troubleshooting-in-the-vrealize-orchestrator-operations-client/workflow-script-debugging.html), and [Workflow Token Replay](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/troubleshooting-in-the-vrealize-orchestrator-operations-client/workflow-token-replay.html).
+- Broadcom KB: [446523 — Interactive debugger hangs or causes out of memory](https://knowledge.broadcom.com/external/article/446523/interactive-debugger-hangs-or-causes-out.html).
+- Broadcom TechDocs (Aria Automation 8.18): [Debugging actions in the Orchestrator Client](https://techdocs.broadcom.com/us/en/vmware-cis/aria/aria-automation/8-18/using-the-vrealize-orchestrator-client-8-18/managing-actions-in-vro/running-and-debugging-actions/debugging-actions-in-the-vrealize-orchestrator-client.html).
+
+</Recipe>

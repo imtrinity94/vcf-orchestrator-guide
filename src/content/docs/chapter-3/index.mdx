@@ -13,11 +13,15 @@ import ComingSoon from '../../../components/ComingSoon.astro';
   { title: 'Scriptable tasks and the schema canvas', href: 'recipes/02-scriptable-tasks/' },
   { title: 'Decisions, switches, and loops', href: 'recipes/03-decisions-switches-loops/' },
   { title: 'Handling errors and exceptions', href: 'recipes/04-handling-errors/' },
+  { title: 'Resuming and debugging failed runs', href: 'recipes/05-resume-and-debug/' },
+  { title: 'Building input forms', href: 'recipes/06-input-forms/' },
+  { title: 'Waiting tasks and custom events', href: 'recipes/07-waiting-and-events/' },
+  { title: 'Asynchronous and nested workflows', href: 'recipes/08-async-and-nested/' },
 ]} />
 
 This is the heart of Orchestrator. A workflow is a drawing: elements on a canvas, joined by arrows, with data passed between them through named slots. Chapters 1 and 2 got an Orchestrator running and kept it healthy. From here on you build things with it.
 
-The recipes in this chapter build on each other. Recipe 3.1 makes a two-step workflow and explains how data moves through it. Recipe 3.2 adds a reusable action and the canvas moves you need every day. Recipe 3.3 makes the workflow branch, loop, and repeat itself over a list. Recipe 3.4 teaches it to fail well. Later recipes add forms, waits, sub-workflows, and people.
+The recipes in this chapter build on each other. Recipe 3.1 makes a two-step workflow and explains how data moves through it. Recipe 3.2 adds a reusable action and the canvas moves you need every day. Recipe 3.3 makes the workflow branch, loop, and repeat itself over a list. Recipe 3.4 teaches it to fail well, and recipe 3.5 shows how to pick up a failed run and step through it. Recipe 3.6 gives the workflow a proper run form. Recipes 3.7 and 3.8 make it wait, and run other workflows alongside it. The last recipe brings people into the run.
 
 ## The example workflows
 
@@ -44,4 +48,4 @@ The ideas in this chapter are almost unchanged since vCO 5.5. The editor around 
 
 ## Still to come in this chapter
 
-<ComingSoon topics={["Resuming and debugging failed runs","Building input forms","Waiting tasks and custom events","Asynchronous and nested workflows","User interactions and approvals"]} />
+<ComingSoon topics={["User interactions and approvals"]} />
