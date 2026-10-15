@@ -1,0 +1,155 @@
+---
+title: Waiting tasks and custom events
+description: Recipe 3.7 — pause a run until a set time with a waiting timer, hold it until another workflow sends a custom event, and choose between waiting and sleeping.
+sidebar:
+  label: 3.7 Waiting and custom events
+  order: 7
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+Some workflows have to wait: for tonight's change window, for a vCenter task to finish, for another system to say it's done. Recipe 3.3 waited with `System.sleep` in a loop, which is fine for a few seconds or minutes. For anything longer, a sleeping run wastes a server thread and is lost if the server restarts. Orchestrator has better ways to wait.
+
+In this recipe you build two small workflows. `Pause until an hour` uses a **waiting timer** to suspend a run until a set time of day. `Wait for a signal` holds a run until another workflow, `Send a signal`, sends it a **custom event**, or until a deadline passes.
+
+<Recipe type="ready">
+
+- The folder **VCF Orchestrator Guide/Chapter 3**.
+- The time zone of the Orchestrator server. The appliance usually runs in UTC, so a workflow that waits until 22:00 waits until 22:00 UTC, which is 03:30 the next morning in India.
+
+<Verify>Check the time zone of <code>vco01</code> with <code>date</code> in its root shell, and confirm that JavaScript <code>Date</code> objects in workflows use the same time zone.</Verify>
+
+</Recipe>
+
+<Recipe type="how">
+
+**Work out when to wake up**
+
+1. Create a workflow called `Pause until an hour` in **VCF Orchestrator Guide/Chapter 3**, with an input `wakeHour` of type `number`.
+2. On the **Variables** tab, add a variable `wakeDate` of type `Date`.
+3. On the **Schema** tab, add a scriptable task called `Work out the wake-up time`, with `wakeHour` in and `wakeDate` out:
+
+```javascript title="Pause until an hour — Work out the wake-up time"
+// The next time the server's clock reads wakeHour:00, today or tomorrow
+var now = new Date();
+wakeDate = new Date(now.getTime());
+wakeDate.setHours(wakeHour, 0, 0, 0);
+if (wakeDate.getTime() <= now.getTime()) {
+    wakeDate.setDate(wakeDate.getDate() + 1);
+}
+System.log("Waiting until " + wakeDate);
+```
+
+**Add the waiting timer**
+
+4. Drag a **Waiting timer** from the **Generic** group onto the arrow after `Work out the wake-up time`.
+5. Select it. On its **Inputs** tab, bind its parameter `timer.date` to `wakeDate`.
+6. After the timer, add a scriptable task called `Carry on`, with this one line:
+
+```javascript title="Pause until an hour — Carry on"
+System.log("Woke up at " + new Date());
+```
+
+<Figure n="3.23" caption="A waiting timer, with its date bound to a variable."
+  capture="<b>Schema</b> tab of <b>Pause until an hour</b>: Start, <b>Work out the wake-up time</b>, <b>Waiting timer</b>, <b>Carry on</b>, End. The waiting timer is selected and its <b>Inputs</b> tab shows <code>timer.date</code> bound to <code>wakeDate</code>." />
+
+7. Save and run it, with `wakeHour` set to the next hour on the server's clock. The run logs the time it'll wait until, then shows as **Waiting** in **Activity** > **Workflow Runs**. At the top of the hour it carries on, logs the second line, and completes.
+
+<Figure n="3.24" caption="A run suspended by a waiting timer."
+  capture="<b>Activity</b> > <b>Workflow Runs</b>, filtered on <b>Pause until an hour</b>: one run in the <b>Waiting</b> state, with its start time, and the run's <b>Logs</b> tab showing <i>Waiting until …</i>." />
+
+<Verify>Walk steps 4–7 on 9.1.1. Confirm the palette name <b>Waiting timer</b>, that its input is called <code>timer.date</code> on an <b>Inputs</b> tab, and the state shown for a suspended run in <b>Activity</b> > <b>Workflow Runs</b> (<b>Waiting</b>, or a separate waiting-for-signal state).</Verify>
+
+**Wait for a custom event**
+
+8. Create a workflow called `Wait for a signal`, with an input `eventName` of type `string`, an input `waitMinutes` of type `number`, and an output `signalled` of type `boolean`.
+9. Add a variable `endDate` of type `Date`, and a variable `isExternalEvent` of type `boolean` with the value `false`.
+10. Add a scriptable task called `Set the deadline`, with `eventName` and `waitMinutes` in and `endDate` out:
+
+```javascript title="Wait for a signal — Set the deadline"
+endDate = new Date(new Date().getTime() + waitMinutes * 60 * 1000);
+System.log("Waiting for '" + eventName + "' until " + endDate);
+```
+
+11. In the palette search box, type `custom event`. Drag the predefined task **Wait for custom event** onto the arrow after `Set the deadline`.
+12. Select it and bind its inputs: `eventName` to `eventName`, `endDate` to `endDate`, and `isExternalEvent` to `isExternalEvent`. Bind its output `success` to `signalled`.
+
+<Figure n="3.25" caption="The predefined Wait for custom event task, with its inputs bound."
+  capture="<b>Schema</b> tab of <b>Wait for a signal</b>: Start, <b>Set the deadline</b>, <b>Wait for custom event</b>, End. <b>Wait for custom event</b> is selected and its <b>Inputs/Outputs</b> tab shows <code>eventName</code>, <code>endDate</code>, and <code>isExternalEvent</code> in, and <code>success</code> out to <code>signalled</code>." />
+
+<Verify>Confirm on 9.1.1 the palette group that holds <b>Wait for custom event</b> and <b>Send custom event</b> (<b>Basic</b> in recipe 3.2's list of groups), and the names of their parameters. The names used here come from the script inside the predefined tasks in exported 8.x workflows.</Verify>
+
+**Send the event from another workflow**
+
+13. Create a workflow called `Send a signal`, with one input `eventName` of type `string`.
+14. Drag the predefined task **Send custom event** onto its schema and bind its input `eventName` to the workflow input. Save.
+15. Run `Wait for a signal` with `eventName` = `vcfguide-signal-test` and `waitMinutes` = `30`. It shows as **Waiting**.
+16. Run `Send a signal` with the same `eventName`. Within a few seconds, the waiting run completes, and its `signalled` output is `true`.
+17. Run `Wait for a signal` again with `waitMinutes` = `2`, and send nothing. After two minutes, the run completes with `signalled` = `false`.
+
+<Figure n="3.26" caption="A custom event releases the waiting run."
+  capture="<b>Activity</b> > <b>Workflow Runs</b>: a completed run of <b>Send a signal</b>, and just below it the run of <b>Wait for a signal</b> that it released, also completed. The second run's <b>Variables</b> tab shows <code>eventName</code> = <code>vcfguide-signal-test</code> and <code>signalled</code> = <code>true</code>." />
+
+</Recipe>
+
+<Recipe type="works">
+
+Every running workflow has a thread on the Orchestrator server. A scriptable task that calls `System.sleep(60000)` keeps its thread for the whole minute, doing nothing. A few of those are harmless. A few hundred, each waiting an hour, use up the threads that other runs need.
+
+The **waiting timer** and the **waiting event** element are Orchestrator's long-running elements. When a run reaches one, Orchestrator saves the run's state to its database and frees the thread. One background thread then watches all the suspended runs on the server. For a waiting timer, it checks the date in `timer.date`. For a waiting event, it checks a **trigger**, an object that fires when something happens elsewhere. When the date passes or the trigger fires, the run is picked up again, with all its slots as they were, and carries on with the next element. Because the state is in the database, a suspended run survives a restart of the server.
+
+**Custom events** are named signals inside Orchestrator. The predefined task **Send custom event** calls `System.sendCustomEvent(eventName)`, which sends an event with that name to every workflow and policy waiting for it. **Wait for custom event** calls `System.waitCustomEventUntil`, which waits until an event with that name arrives or `endDate` passes. It returns the event, or `null` on timeout, and the task turns that into `success`. The name is the only link between sender and receiver, so make it unique, for example by putting a request number in it.
+
+You can call the same methods from your own scripts:
+
+```javascript title="Sending and waiting for a custom event in a script"
+// requestId is a string input of both workflows
+
+// In the sending workflow
+System.sendCustomEvent("vcfguide-signal-" + requestId);
+
+// In the waiting workflow: "internal" means an HTTP request can't send this event
+var deadline = new Date(new Date().getTime() + 30 * 60 * 1000);
+var event = System.waitCustomEventUntil("internal", "vcfguide-signal-" + requestId, deadline);
+if (event === null) {
+    throw "No signal for request " + requestId + " within 30 minutes";
+}
+```
+
+<Verify>Check on 9.1.1 whether a run waiting in <b>Wait for custom event</b> releases its thread like a waiting timer, or holds it like <code>System.sleep</code>. Broadcom's 9.0 page on long-running workflows only names the waiting timer, waiting event, and user interaction elements. Also check whether an event sent on one node of a three-node cluster reaches a run waiting on another node.</Verify>
+
+<ThenNow
+  then="Drag a <b>Waiting Timer</b> or <b>Waiting Event</b> from the Java client's <b>Generic</b> menu, then click the <b>Not set</b> link on its <b>IN</b> tab to bind <code>timer.date</code> or <code>trigger.ref</code>."
+  now="Drag a <b>Waiting timer</b> or <b>Waiting event</b> from the <b>Generic</b> group in the browser, and bind the same parameter on its <b>Inputs</b> tab. The custom event tasks and methods haven't changed." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**Wait for a vCenter task without a loop.** The **Waiting event** element takes a `trigger.ref` input of type `Trigger`. The vSphere plug-in can make one from any vCenter task: `trigger = task.createEndOfTaskTrigger(timeoutSeconds);` in a scriptable task directly before the waiting event. The run sleeps in the database until the task ends or the timeout passes. Every trigger needs a timeout. The usual alternative, the library action `vim3WaitTaskEnd`, polls in a loop and holds a thread the whole time.
+
+**Plan for a wake-up that comes late.** If the server is down when a waiting timer's date passes, the run can fail with "Timeout on signal" when the server starts again, instead of carrying on. Give the timer an exception path (recipe 3.4) if missing the time matters.
+
+<Verify>Reproduce the late wake-up in the lab: run <b>Pause until an hour</b>, stop the Orchestrator service past the wake time, start it again, and note whether the run fails with "Timeout on signal" or carries on.</Verify>
+
+**Other ready-made waits.** The palette also has the predefined tasks **Sleep** and **Wait until date**. They're handy, but check whether they suspend the run or hold a thread before you use them for long waits.
+
+**Wait for a person.** A **User interaction** element is a waiting event whose trigger is a person answering a form. Recipe 3.9 builds an approval with it.
+
+**Time out every wait.** A run that waits for ever is a run nobody remembers. Give every custom event a deadline, every trigger a timeout, and test what happens when the time runs out, as step 17 does.
+
+**Don't wait at all.** If nothing needs to happen until a set time, schedule the workflow instead of starting it and making it wait. Recipe 3.8 shows the **Schedule workflow** element, and Chapter 7 covers scheduling and policies.
+
+</Recipe>
+
+<Recipe type="see">
+
+- [3.3 Decisions, switches, and loops](../03-decisions-switches-loops/), for the short `System.sleep` loop this recipe replaces.
+- [3.8 Asynchronous and nested workflows](../08-async-and-nested/), to start a workflow and carry on.
+- Broadcom TechDocs (VCF 9): [Developing Long-Running Workflows](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/developing-workflows-with-vcf-operations-orchestrator/vcfo-developing-long-running-workflows.html) and [Schema Elements and Schema Element Properties](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/developing-workflows-with-vcf-operations-orchestrator/working-with-the-workflow-schema/vcfo-schema-elements-and-schema-element-properties.html).
+- Broadcom TechDocs (Aria Automation Orchestrator): [Timer-based workflows](https://techdocs.broadcom.com/us/en/vmware-cis/aria/aria-automation/all/developing-workflows-all/developing-long-running-workflows/timer-based-workflows-wrapper.html) and [Trigger-based workflows](https://techdocs.broadcom.com/us/en/vmware-cis/aria/aria-automation/all/developing-workflows-all/developing-long-running-workflows/trigger-based-workflows-wrapper.html).
+- VMware type definitions for the Orchestrator scripting API (`System.sendCustomEvent`, `System.waitCustomEventUntil`): [build-tools-for-vmware-aria, o11n-core](https://github.com/vmware/build-tools-for-vmware-aria/blob/main/vro-types/o11n-core/index.d.ts).
+
+</Recipe>

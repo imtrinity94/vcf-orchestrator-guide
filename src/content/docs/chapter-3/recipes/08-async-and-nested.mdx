@@ -1,0 +1,165 @@
+---
+title: Asynchronous and nested workflows
+description: Recipe 3.8 — call one workflow from another without waiting for it, run several at once and collect their results, and schedule a workflow for later.
+sidebar:
+  label: 3.8 Asynchronous and nested workflows
+  order: 8
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+Recipe 3.3 used a foreach element to run `Describe a VM` once for each VM in a list. Each run waited for the one before it to finish. That's the safe default, and it's what the **workflow element** does too: the parent stops, the child runs, and the parent carries on with the child's outputs. When the children are slow and don't depend on each other, waiting for each in turn wastes time. Orchestrator can also start a child and carry on at once, start several children together, or set one up to run later.
+
+In this recipe you start `Describe a VM` without waiting for it, then build `Describe VMs in parallel`, which starts one run per VM, waits for all of them, and collects their summaries.
+
+<Recipe type="ready">
+
+- The workflow `Describe a VM` from recipe 3.1. It takes a `VC:VirtualMachine` input called `vm` and returns a `string` output called `summary`.
+- The folder **VCF Orchestrator Guide/Chapter 3**.
+- Three or more VMs in the lab. They're only read from.
+
+</Recipe>
+
+<Recipe type="how">
+
+**Start a workflow and carry on**
+
+1. Create a workflow called `Start a VM description` in **VCF Orchestrator Guide/Chapter 3**, with an input `vm` of type `VC:VirtualMachine`.
+2. On the **Schema** tab, drag an **Asynchronous workflow** element from the **Generic** group onto the arrow between start and end. Under **Workflow**, choose `Describe a VM`.
+3. When asked, promote the input `vm` to the existing workflow input.
+4. Under **Output Options**, choose to bind the workflow token, and create a variable `describeToken` of type `WorkflowToken`.
+5. Add a scriptable task after the element, called `Report the token`, with `describeToken` in:
+
+```javascript title="Start a VM description — Report the token"
+System.log("Started " + describeToken.name + ", state " + describeToken.state);
+```
+
+<Figure n="3.27" caption="An asynchronous workflow element, binding the child's token."
+  capture="<b>Schema</b> tab of <b>Start a VM description</b>: Start, <b>Asynchronous workflow</b> element calling <b>Describe a VM</b>, <b>Report the token</b>, End. The asynchronous element is selected, with <b>Workflow</b> = <b>Describe a VM</b>, <code>vm</code> bound under <b>Inputs</b>, and <code>describeToken</code> bound under <b>Output Options</b>." />
+
+6. Save and run it. The parent completes almost at once, and its log shows the child in the `running` state. Open **Activity** > **Workflow Runs**: the run of `Describe a VM` finishes on its own a moment later, with its own logs and its own `summary`.
+
+<Verify>Walk steps 2–6 on 9.1.1. Confirm the palette name <b>Asynchronous workflow</b>, the <b>Output Options</b> section and its choice between the called workflow and the workflow token, and whether the element offers a default name for the token output.</Verify>
+
+**Run several workflows at once and collect the results**
+
+7. Create a workflow called `Describe VMs in parallel`, with an input `vms` of type `Array/VC:VirtualMachine` and an output `summaries` of type `Array/string`.
+8. On the **Variables** tab, add:
+   - `describeWorkflow`, of type `Workflow`. Click its value and pick `Describe a VM` from the library.
+   - `timeoutSeconds`, of type `number`, with the value `300`.
+9. Add a scriptable task called `Start one run per VM`, with `vms` and `describeWorkflow` in and a new variable `tokens` of type `Array/WorkflowToken` out:
+
+```javascript title="Describe VMs in parallel — Start one run per VM"
+tokens = [];
+for (var i = 0; i < vms.length; i++) {
+    var props = new Properties();
+    props.put("vm", vms[i]);
+    tokens.push(describeWorkflow.execute(props));
+}
+System.log("Started " + tokens.length + " runs of " + describeWorkflow.name);
+```
+
+10. Add a second scriptable task called `Wait and collect`, with `vms`, `tokens`, and `timeoutSeconds` in and `summaries` out:
+
+```javascript title="Describe VMs in parallel — Wait and collect"
+function isFinished(token) {
+    var state = token.state;
+    return state === "completed" || state === "failed" || state === "canceled";
+}
+
+var deadline = new Date().getTime() + timeoutSeconds * 1000;
+var pending = tokens.length;
+while (pending > 0) {
+    if (new Date().getTime() > deadline) {
+        throw pending + " runs still unfinished after " + timeoutSeconds + " seconds";
+    }
+    System.sleep(2000);
+    pending = 0;
+    for (var i = 0; i < tokens.length; i++) {
+        if (!isFinished(tokens[i])) {
+            pending++;
+        }
+    }
+}
+
+summaries = [];
+for (var j = 0; j < tokens.length; j++) {
+    if (tokens[j].state === "completed") {
+        summaries.push(tokens[j].getOutputParameters().get("summary"));
+    } else {
+        summaries.push(vms[j].name + ": run " + tokens[j].state + ", " + tokens[j].exception);
+    }
+}
+System.log(summaries.join("\n"));
+```
+
+11. Save and run it with three VMs. While it runs, open **Activity** > **Workflow Runs** in a second browser tab: three runs of `Describe a VM` start within a second of each other, instead of one after another.
+12. When the parent completes, its `summaries` output holds one line per VM, in the same order as the input.
+
+<Figure n="3.28" caption="The variables of Describe VMs in parallel, with the child workflow picked from the library."
+  capture="Workflow editor for <b>Describe VMs in parallel</b>, <b>Variables</b> tab: <code>describeWorkflow</code> (<code>Workflow</code>) = <b>Describe a VM</b>, <code>timeoutSeconds</code> (<code>number</code>) = <code>300</code>, and <code>tokens</code> (<code>Array/WorkflowToken</code>)." />
+
+<Figure n="3.29" caption="Three child runs started together by one parent."
+  capture="<b>Activity</b> > <b>Workflow Runs</b>: one run of <b>Describe VMs in parallel</b> and three runs of <b>Describe a VM</b> with start times within a second of each other." />
+
+<Verify>Run steps 7–12 on 9.1.1. Confirm that a <code>Workflow</code> variable's value can be picked from the library on the <b>Variables</b> tab, that <code>Workflow.execute</code> accepts a <code>Properties</code> object of inputs, the token state strings <code>completed</code>, <code>failed</code>, and <code>canceled</code>, and that <code>getOutputParameters().get("summary")</code> returns the child's output.</Verify>
+
+</Recipe>
+
+<Recipe type="works">
+
+Every run of a workflow, parent or child, is a **workflow token**: its own record in the database, with its own slots, logs, and state. What the calling elements differ in is whether the parent waits for the child's token to finish.
+
+- A **workflow element** calls the child **synchronously**. The child runs in the same memory space as the parent. The parent waits, then gets the child's outputs through ordinary bindings. If the child fails, the element fails, and the parent's exception path or default error handler takes over (recipe 3.4).
+- An **asynchronous workflow** element starts the child and moves on to the next element at once. It can hand back either the child workflow or the child's token. The child's outputs aren't bound, because they don't exist yet, and if the child fails, the parent doesn't notice unless it looks.
+- A **schedule workflow** element creates a task that runs the child once, at a date you bind, and hands back the task. The parent carries on straight away.
+- A **nested workflows** element starts several workflows at the same moment, and waits for all of them to finish before the parent carries on.
+
+`Workflow.execute` is the scripting equivalent of the asynchronous element. It returns a `WorkflowToken` straight away, and the run it starts is a normal run like any other, queued and executed by the server's workflow engine. The token object is live: each time the script reads `token.state`, it gets the current state from the server. A token's state is one of `running`, `waiting`, `waiting-signal`, `canceled`, `completed`, or `failed`. The script waits for the last three, so a child that stops to wait for a person or an event (recipe 3.7) is treated as still running until the timeout. The wait loop itself polls with `System.sleep`, so it holds a thread while it waits, like the loop in recipe 3.3. Keep `timeoutSeconds` in minutes, not hours.
+
+`getOutputParameters()` returns a `Properties` object of the child's outputs, keyed by name. `token.exception` holds the error of a failed child, so the parent can report it without opening the child run.
+
+The workflow engine runs a limited number of workflows at once on each node, and queues the rest. Broadcom documents the defaults as 300 running workflows per node and 10,000 in the queue, and says that runs fail when the queue is full. A loop that starts one child per item can reach those numbers faster than you'd think.
+
+<Verify>Find the 9.1.1 defaults for concurrent and queued workflow runs (the properties <code>com.vmware.vco.workflow-engine.executors-count</code> and <code>com.vmware.vco.workflow-engine.executors-max-queue-size</code>), for example in <code>vracli vro properties advanced</code>.</Verify>
+
+<ThenNow
+  then="Find the child runs of a parent in the Java client's inventory tree, as tokens under each workflow, and refresh the tree to see their state."
+  now="See every run, parent and child, in one list under <b>Activity</b> > <b>Workflow Runs</b>, and filter it by workflow or state." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**Why not a foreach?** The foreach element is simpler: no tokens, no wait loop, and its outputs are collected for you. Use it unless running the children together really saves time, for example when each one waits on a slow vCenter task. Parallel runs also put load on the target system all at once, so don't start a hundred clones on one datastore just because you can.
+
+<Verify>Confirm that the 9.1.1 foreach element runs its iterations one after another, not in parallel.</Verify>
+
+**Limit how many run at once.** To describe 200 VMs in batches of 10, start ten runs, wait for them, then start the next ten. Put the start and wait scripts in a loop on the canvas, or in one scriptable task.
+
+**The library's own wait action.** The module `com.vmware.library.workflow` has an action, `waitAllWorkflowComplete`, that takes an array of tokens and waits for all of them. It saves writing the loop in step 10. Check whether it gives up after a timeout before you rely on it: if it doesn't, a child that hangs keeps the parent waiting.
+
+<Verify>Check the inputs, return type, and behaviour of <code>com.vmware.library.workflow/waitAllWorkflowComplete</code> on 9.1.1, including what it does when a child fails.</Verify>
+
+**Several different workflows at once.** When the children are different workflows, a **nested workflows** element does the starting and waiting for you. Drag it onto the canvas, click **Add Workflow** for each child, and bind each one's inputs and outputs. The parent carries on when every child has finished. The element can also start workflows on another Orchestrator server, or with different credentials. For that, every input of the remote workflow must make sense on the remote server, and both servers need the same plug-ins and content.
+
+<Verify>Confirm that the <b>Nested workflows</b> element is on the 9.1.1 palette and how it reports a child that fails.</Verify>
+
+**Run it later.** A **schedule workflow** element takes a date input, called `workflowScheduleDate` in earlier versions, and returns a `Task` for the scheduled run. In a script, `describeWorkflow.schedule(props, startDate)` does the same. A run scheduled this way runs once. Chapter 7 covers recurring schedules.
+
+**Don't start a child and forget it.** An asynchronous child that fails fails silently, as far as the parent is concerned. Either check its token later, as step 10 does, or make sure the child reports its own failures, for example by sending a mail or failing loudly enough for monitoring to see.
+
+</Recipe>
+
+<Recipe type="see">
+
+- [3.3 Decisions, switches, and loops](../03-decisions-switches-loops/), for the foreach element.
+- [3.7 Waiting tasks and custom events](../07-waiting-and-events/), for children that wait.
+- Broadcom TechDocs (VCF 9): [Call a Workflow Synchronously](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/developing-workflows-with-vcf-operations-orchestrator/vcfo-calling-workflows-within-workflows/vcfo-call-a-workflow-synchronously.html) and [Schema Elements and Schema Element Properties](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/developing-workflows-with-vcf-operations-orchestrator/working-with-the-workflow-schema/vcfo-schema-elements-and-schema-element-properties.html).
+- Broadcom TechDocs (Aria Automation Orchestrator): [Calling Workflows Within Workflows](https://techdocs.broadcom.com/us/en/vmware-cis/aria/aria-automation/all/developing-workflows-all/calling-workflows-within-workflows.html) and [Schema Elements](https://techdocs.broadcom.com/us/en/vmware-cis/aria/aria-automation/all/developing-workflows-all/working-with-the-workflow-schema/schema-elements.html).
+- Broadcom TechDocs (Aria Automation 8.16): [Configure the workflow run properties](https://techdocs.broadcom.com/us/en/vmware-cis/aria/aria-automation/8-16/vco-installing-and-configuring-8-16/further-configuration-options/configure-the-workflow-run-properties.html).
+- VMware type definitions for `Workflow`, `WorkflowToken`, and `Server`: [build-tools-for-vmware-aria, o11n-core](https://github.com/vmware/build-tools-for-vmware-aria/blob/main/vro-types/o11n-core/index.d.ts).
+
+</Recipe>
