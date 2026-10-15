@@ -9,7 +9,7 @@ A free, open cookbook for **VCF Operations Orchestrator 9.x**, written by Mayank
 | Chapter | Status |
 |---|---|
 | 1. Getting Orchestrator running | Draft, in review |
-| 2. Configuring the appliance | Draft in progress (2.1–2.4) |
+| 2. Configuring the appliance | Draft, in review |
 | 3–8 | Coming soon |
 
 ## Working on the book

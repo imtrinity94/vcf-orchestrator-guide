@@ -1,0 +1,119 @@
+---
+title: Backing up and restoring Orchestrator
+description: Recipe 2.6 — back up a standalone appliance or a three-node cluster at the VM level, restore it, and keep a separate copy of your content.
+sidebar:
+  label: 2.6 Backup and restore
+  order: 6
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+Everything Orchestrator knows lives inside the appliance: workflows, actions, configuration elements, plug-in settings, credentials, run history, and the PostgreSQL database that holds them. There's no separate database server to back up any more, so you protect Orchestrator by protecting its VMs. This recipe shows how to do that for a single appliance and for a cluster, how to restore, and why you still want a second, content-only copy.
+
+<Recipe type="ready">
+
+- A standalone appliance (`vco01.vmw.lab`) or the three-node cluster from recipe 2.4.
+- Permission in the vSphere Client to take and revert snapshots of the appliance VMs, or a backup product that does **image-based backups** through vSphere Storage APIs – Data Protection (VADP).
+- SSH access as `root` (recipe 2.1), for the cluster steps and the health checks.
+
+</Recipe>
+
+<Recipe type="how">
+
+The steps below use vSphere snapshots, because every lab has them. A backup product follows the same rules: which VMs, in what order, and without memory.
+
+**Back up a single appliance**
+
+1. In the vSphere Client, right-click the appliance VM (`vco01`) and select **Snapshots** > **Take Snapshot**.
+2. Name it something you'll recognise later, such as `before-2.7-heap-change`.
+3. Clear **Include virtual machine's memory**, then click **Create**.
+
+<Figure n="2.11" caption="A snapshot of the appliance, taken without memory."
+  capture="vSphere Client, <b>Take Snapshot</b> dialog for the <code>vco01</code> VM, name <code>before-2.7-heap-change</code>, with <b>Include virtual machine's memory</b> cleared." />
+
+**Back up a three-node cluster**
+
+4. **Find the primary database node.** On any node, list the PostgreSQL replication cluster. The line whose role is `primary` names the pod that holds the primary database:
+
+```bash title="root@vco01"
+kubectl -n prelude exec postgres-0 -- chpst -u postgres repmgr cluster show --terse --compact
+```
+
+5. Map that pod to a node. The `NODE` column shows which appliance it runs on:
+
+```bash title="root@vco01"
+kubectl -n prelude get pods -o wide | grep postgres
+```
+
+<Figure n="2.12" caption="Finding the node that holds the primary database."
+  capture="SSH session on <code>vco01</code> showing the <code>repmgr cluster show</code> output from step 4, with one <code>primary</code> and two <code>standby</code> rows, followed by the <code>kubectl get pods -o wide</code> output from step 5." />
+
+6. **Snapshot the replicas first, then the primary.** Take a snapshot without memory of each replica node, one after the other, and of the primary node last. In the lab, if `vco02` holds the primary, the order is `vco01`, `vco03`, `vco02`.
+
+**Restore**
+
+7. **Single appliance:** right-click the VM, select **Snapshots** > **Manage Snapshots**, pick the snapshot, and click **Revert**. Power the VM on if it was off.
+8. **Cluster:** power off all three nodes. Revert each one to the snapshot from the same backup run. Power on the **primary node first**, wait until its console shows the login prompt, then power on the two replicas.
+9. **Check the result.** When all pods are `Running`, check the server's health:
+
+```bash title="root@vco01"
+kubectl -n prelude get pods
+vracli vro info -d
+```
+
+10. Log in to the Orchestrator Client and open **Activity** > **Workflow Runs**. Runs that were active at the moment of the backup come back in whatever state they were in. Cancel any you don't want to resume.
+
+11. **Delete the snapshots** once you've finished the change they were protecting. A snapshot isn't a backup: it lives on the same datastore as the VM, and it slows the VM down the longer you keep it.
+
+<Verify>Steps 4 to 8 follow the Aria Automation Orchestrator 8.12 and 8.16 page on backing up and restoring a cluster with snapshots. The 9.x equivalent couldn't be found for this draft. Run a full back up and restore of the three-node lab cluster on 9.1.1 and confirm the order (replicas first, primary last, primary powered on first) and the health checks in step 9.</Verify>
+
+</Recipe>
+
+<Recipe type="works">
+
+An Orchestrator appliance is a small Kubernetes cluster. Its PostgreSQL database, its configuration, and the Kubernetes state that ties them together all sit on the VM's disks. A snapshot or an image-based backup copies those disks at one instant, so a restore puts back every one of them as it was at that instant.
+
+You leave memory out because what's in memory doesn't help. The database writes everything it needs to disk, and a VM restored from a memory snapshot resumes with network connections and Kubernetes timers that are already stale. A restored VM boots cleanly instead, and PostgreSQL recovers from its own log, as it would after a power cut.
+
+In a cluster, the database primary keeps writing while you snapshot the replicas. Taking the primary last means the primary is the newest copy. When you power it on first after a restore, it's still the primary. The replicas then find it, see they're behind, and catch up from it. Power the replicas on first, and one of them may decide the primary is dead and promote itself, leaving you with two databases that disagree.
+
+<Verify>The explanation of why the order matters is inferred from how <code>repmgr</code> failover works, not stated in the Orchestrator documentation. Check in the lab that after a restore in the documented order, <code>repmgr cluster show</code> reports one primary and two healthy standbys.</Verify>
+
+<ThenNow
+  then="Back up the external database with its own tools, and use Control Center's <b>Export Orchestrator Configuration</b> to save the server settings to a file."
+  now="Back up the whole VM. The database and the configuration are inside the appliance, and Control Center is gone." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**Use a real backup product for real backups.** Snapshots are for short changes, like the ones in this chapter. For daily backups, use an image-based backup product that supports VADP. Put all three cluster nodes in the same job so they're copied at nearly the same moment, and restore all three from the same run. VCF's own guidance for its other appliances is the same: back up every node of a cluster together, keep each backup for at least three days, and run one test backup before you trust the schedule.
+
+**Quiescing.** The Orchestrator documentation asks only for snapshots without memory, and says nothing about quiescing. VCF's own backup tables quiesce some appliances and not others. Until you've tested it, leave quiescing off for the Orchestrator VMs.
+
+<Verify>Confirm with your backup product whether it quiesces the Orchestrator VMs by default, and that a backup taken without quiescing restores cleanly on 9.1.1.</Verify>
+
+**Fleet Management backups.** VCF Operations Fleet Management can schedule backups of the VCF management components to an SFTP server. A standalone Orchestrator that you deployed yourself isn't one of those components, so plan its backups separately.
+
+<Verify>Check in VCF Operations, under <b>Build</b> > <b>Lifecycle</b> > <b>VCF Management</b> > <b>Backup &amp; Restore</b>, that a standalone Orchestrator appliance doesn't appear as a backup target in 9.1.</Verify>
+
+**The embedded Orchestrator** is part of VCF Automation, so it's protected by VCF Automation's backups. You can't snapshot it on its own.
+
+**Keep a content-only copy as well.** A VM backup is all or nothing: to recover one workflow that someone deleted yesterday, you'd have to roll the whole server back. Export your own content regularly as a package, such as `com.vcfguide.chapter2`, or keep it in Git. Chapter 6 covers both. Then a single deleted workflow is a quick import, not a restore.
+
+**Restore to a new VM.** If the original VM is gone, a backup product can restore it as a new VM. Keep the same name, IP address, and MAC address if you can. The appliance's certificates, its Kubernetes cluster, and the authentication setup all expect its old identity.
+
+<Verify>Check whether an appliance restored with a new MAC address comes up cleanly on 9.1.1, or whether it needs further steps.</Verify>
+
+</Recipe>
+
+<Recipe type="see">
+
+- [2.4 Building a three-node cluster](../04-three-node-cluster/), which warns against reverting a single cluster node.
+- [2.3 Managing the package signing certificate](../03-signing-certificate/), before you rely on package exports.
+- Broadcom TechDocs: [Image-Based Backup for VCF Operations](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/fleet-management/backup-and-restore-of-cloud-foundation/configure-vmware-cloud-foundation-operations-vm-level-backup.html), for VCF's general rules on image-based backups, and [VCF Component Backup and Restore](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-1/design/design-blueprints-for/security-modernization/vcf-backup-and-restore.html).
+- VMware Docs (Aria Automation Orchestrator 8.16): [Back up and restore Automation Orchestrator](https://docs.vmware.com/en/VMware-Aria-Automation/8.16/Installing-Configuring-Automation-Orchestrator/GUID-4F1036A7-2E83-41DB-ABB5-F064A62C41B4.html).
+
+</Recipe>

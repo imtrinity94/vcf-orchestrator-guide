@@ -1,0 +1,139 @@
+---
+title: Sending logs to a syslog server
+description: Recipe 2.5 — forward the appliance's logs to a syslog server or to VCF Operations for logs, so they outlive the appliance and sit next to everything else.
+sidebar:
+  label: 2.5 Syslog
+  order: 5
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+The appliance keeps its logs on its own disk, rotates them, and eventually throws them away. That's fine until you need to know what happened last Tuesday, or the appliance itself is the thing that broke. This recipe sends a copy of every log line to a central log server as it's written. You can use any syslog server, or VCF Operations for logs if your VCF fleet already has it.
+
+<Recipe type="ready">
+
+- A standalone appliance with SSH access as `root` (recipe 2.1).
+- **A syslog server** that accepts messages from the appliance. The lab uses `syslog01.vmw.lab`, listening on UDP 514 and on TCP 6514 with TLS. If you use VCF Operations for logs instead, you need its FQDN (`logs.vmw.lab` in the lab).
+- For TLS: the **CA certificate** that signed the syslog server's certificate, as a PEM file. In the lab that's the lab root CA from recipe 2.2, copied to `/root/lab-root-ca.pem` on the appliance.
+- **Firewall rules** from the appliance (from every node, in a cluster) to the log server on the port you choose.
+
+</Recipe>
+
+<Recipe type="how">
+
+1. **See what's configured now.** Log in to the appliance over SSH and list the syslog integrations. On a fresh appliance the list is empty:
+
+```bash title="root@vco01"
+vracli remote-syslog
+```
+
+2. **Add the syslog server.** Give the integration a name with `-id`, then the server as a URL. Choose one of the three connection types.
+
+   TCP with TLS, which is what you want for anything that leaves the management network:
+
+```bash title="root@vco01"
+vracli remote-syslog set -id labsyslog tcp://syslog01.vmw.lab:6514 --ca-file /root/lab-root-ca.pem
+```
+
+   TCP without TLS. You must say so explicitly with `--disable-ssl`:
+
+```bash title="root@vco01"
+vracli remote-syslog set -id labsyslog tcp://syslog01.vmw.lab:514 --disable-ssl
+```
+
+   Plain UDP. If you leave the port out, it defaults to `514`:
+
+```bash title="root@vco01"
+vracli remote-syslog set -id labsyslog udp://syslog01.vmw.lab
+```
+
+3. **Check the result.** Run `vracli remote-syslog` again. Your integration is listed with its name, host, port, and protocol.
+
+<Figure n="2.9" caption="One syslog integration configured on the appliance."
+  capture="SSH session on <code>vco01</code> showing the output of <code>vracli remote-syslog</code> after step 2, with the <code>labsyslog</code> integration pointing at <code>syslog01.vmw.lab</code> on TCP 6514." />
+
+4. **Send a test line.** In the Orchestrator Client, create a workflow called `Write a syslog test line` in the folder **VCF Orchestrator Guide/Chapter 2**. Give it one **Scriptable task** with this script, then run it:
+
+```javascript title="Write a syslog test line — scriptable task"
+// Writes a line that is easy to search for on the log server.
+var marker = "vcfguide-syslog-test " + new Date().toISOString();
+System.log(marker);
+System.warn(marker + " (warning level)");
+```
+
+5. **Find the line on the log server.** Search for `vcfguide-syslog-test`. Both lines should arrive within a minute, tagged with the appliance's host name.
+
+<Figure n="2.10" caption="The test line from the workflow, received by the syslog server."
+  capture="The lab syslog server's search or tail view, filtered on <code>vcfguide-syslog-test</code>, showing the two lines from step 4 with <code>vco01.vmw.lab</code> as the source." />
+
+6. **Remove an integration** you no longer want, by name:
+
+```bash title="root@vco01"
+vracli remote-syslog unset -id labsyslog
+```
+
+   Without `-id`, `unset` removes every integration, after asking you to confirm. Add `-f` to skip the question.
+
+<Verify>The <code>vracli remote-syslog</code> commands and options in steps 1 to 6 come from the Aria Automation Orchestrator 8.12 to 8.18 documentation. Check them against <code>vracli remote-syslog -h</code> on 9.1.1, and capture the real output of <code>vracli remote-syslog</code> for Figure 2.9.</Verify>
+
+<Verify>Check that workflow <code>System.log()</code> and <code>System.warn()</code> lines actually reach the syslog server (step 5), and note how long they take and which host name and program name they arrive with.</Verify>
+
+</Recipe>
+
+<Recipe type="works">
+
+Orchestrator's services run as containers in the appliance's Kubernetes cluster, and each container writes its logs to files under `/services-logs/prelude/` on the appliance. The Orchestrator server's own logs, including the lines your workflows write with `System.log()`, are under `/services-logs/prelude/vco-app/`.
+
+A log collector on the appliance reads those files as they grow. `vracli remote-syslog set` stores your integration in the appliance's configuration and tells that collector to forward every new line to the server you named. Nothing changes in Orchestrator itself, so there's no restart, and workflows keep running while you set it up.
+
+Because the collector reads the files rather than replacing them, the local logs stay exactly as they were. Forwarding adds a copy, it doesn't move anything.
+
+<Verify>The description of the log collector (which component it is and how it picks up files) is inferred from the 8.x appliance design, not from 9.x documentation. Confirm that <code>remote-syslog set</code> doesn't restart any Orchestrator pod by running <code>kubectl -n prelude get pods</code> before and after, and comparing the restart counts.</Verify>
+
+<ThenNow
+  then="Open Control Center, go to <b>Logging Integration</b>, choose syslog or Log Insight, type the host and port, and save."
+  now="Run <code>vracli remote-syslog set</code> or <code>vracli vrli set</code> in the appliance shell. There's no web page for it." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**VCF Operations for logs.** If your fleet runs VCF Operations for logs, use its own integration instead of plain syslog. It uses the log agent's protocol, which buffers, compresses, and encrypts:
+
+```bash title="root@vco01"
+vracli vrli set logs.vmw.lab
+vracli vrli          # show the current settings
+vracli vrli -h       # every option
+```
+
+If VCF Operations for logs presents a certificate the appliance doesn't trust, add `-k` (`--insecure`) to skip verification. Do that in a lab only. In production, have the appliance trust the issuing CA instead.
+
+<Verify>Confirm the <code>vracli vrli set</code> syntax on 9.1.1 from <code>vracli vrli -h</code>, and which port and scheme it uses by default. A Broadcom KB for 8.x shows HTTPS on port 9543.</Verify>
+
+**One destination at a time.** The appliance sends logs to one remote destination. If both a VCF Operations for logs integration and a syslog integration are configured, VCF Operations for logs wins. If you need logs in two places, forward them from the first server to the second.
+
+<Verify>The "one destination, VCF Operations for logs wins" rule comes from the Aria Automation 8.12 administration guide. Check whether it still holds on Orchestrator 9.1.1.</Verify>
+
+**Don't edit the agent's files by hand.** You may find a familiar `liagent.ini` on the appliance. Changes to it are overwritten within moments, because the appliance regenerates the file from its own configuration. Always use `vracli`.
+
+**Clusters.** In a three-node cluster (recipe 2.4), run `vracli remote-syslog set` once on any node. The setting is part of the shared cluster configuration, so all three nodes start forwarding, each under its own host name.
+
+<Verify>Check that a syslog integration set on one cluster node applies to all three, and that each node's lines arrive under that node's own host name.</Verify>
+
+**Turn up the detail first.** Forwarding sends what the server logs, at the level it logs. To capture more, raise the server or scripting log level with `vracli vro logs configure` (recipe 1.8) before you start chasing a problem, and lower it again afterwards. Debug logging from a busy server can overwhelm a small syslog server.
+
+**The embedded Orchestrator.** The Orchestrator inside VCF Automation has no shell for you to run `vracli` in. Its logs go wherever VCF Automation's logs go, which you set up from VCF Operations for the whole fleet.
+
+</Recipe>
+
+<Recipe type="see">
+
+- [1.8 Configuring Orchestrator from the command line](../../../chapter-1/recipes/08-command-line/), for log levels.
+- [2.2 Replacing the appliance certificate](../02-appliance-certificate/), for the lab root CA.
+- Broadcom TechDocs (Aria Automation Orchestrator 8.18): [Create or overwrite a syslog integration in Automation Orchestrator](https://techdocs.broadcom.com/us/en/vmware-cis/aria/aria-automation/8-18/vco-installing-and-configuring-8-18/further-configuration-options/orchestrator-log-files/configuring-vro-logging-integration-with-syslog.html).
+- Broadcom KB 385957: [Changes to liagent.ini are overwritten on Aria Automation and Aria Orchestrator](https://knowledge.broadcom.com/external/article/385957).
+- Broadcom KB 431771: [Configuring component log forwarding to a VCF Operations for Logs 9.0.x cluster](https://knowledge.broadcom.com/external/article/431771), for the ports VCF Operations for logs listens on.
+
+</Recipe>

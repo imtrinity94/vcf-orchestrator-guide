@@ -175,7 +175,7 @@ kubectl -n prelude exec postgres-0 -- chpst -u postgres repmgr cluster show --te
 
 **Two nodes isn't a cluster.** The procedure supports exactly three. With two, losing either node takes the cluster down, which is worse than running one.
 
-**Sizing.** Every node needs the full 4 vCPUs, 12 GB of memory, and 200 GB of disk from recipe 1.2. If you raise memory for a bigger Java heap later in this chapter, do it on all three.
+**Sizing.** Every node needs the full 4 vCPUs, 12 GB of memory, and 200 GB of disk from recipe 1.2. If you raise memory for a bigger Java heap ([recipe 2.7](../07-java-heap/)), do it on all three.
 
 </Recipe>
 

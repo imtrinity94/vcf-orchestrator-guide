@@ -30,3 +30,10 @@ Lab: VCF 9.1, Orchestrator 9.1.1. Save PNGs at roughly 1400 px wide, crop to the
 | 2.6 | `ch02/fig-2-6.png` | Diagram (to be drawn): clients → `vco.vmw.lab` load balancer → TCP 443 to `vco01`/`vco02`/`vco03`; one Kubernetes cluster across the nodes, a PostgreSQL replica on each, one primary | Orchestrator cluster figure |
 | 2.7 | `ch02/fig-2-7.png` | SSH session on `vco01`: `kubectl -n prelude get nodes` with all three nodes `Ready` | Control Center cluster status |
 | 2.8 | `ch02/fig-2-8.png` | Load balancer pool status (NSX in the lab) for `vco.vmw.lab`, all three members up | — |
+| 2.9 | `ch02/fig-2-9.png` | SSH session on `vco01`: output of `vracli remote-syslog` with the `labsyslog` integration to `syslog01.vmw.lab`, TCP 6514 | Control Center Logging Integration page |
+| 2.10 | `ch02/fig-2-10.png` | Lab syslog server search or tail view filtered on `vcfguide-syslog-test`, two lines from `vco01.vmw.lab` | — |
+| 2.11 | `ch02/fig-2-11.png` | vSphere Client **Take Snapshot** dialog for `vco01`, name `before-2.7-heap-change`, **Include virtual machine's memory** cleared | Control Center Export Configuration page |
+| 2.12 | `ch02/fig-2-12.png` | SSH session on `vco01`: `repmgr cluster show --terse --compact` (one primary, two standbys) and `kubectl -n prelude get pods -o wide \| grep postgres` | — |
+| 2.13 | `ch02/fig-2-13.png` | SSH session on `vco01` after `deploy.sh`: `vco-app` pod **Limits** with `memory: 8G`, and `-XX:MaxRAMPercentage=50` | setenv.sh heap settings |
+| 2.14 | `ch02/fig-2-14.png` | SSH session on `vco01`: part of `vracli vro properties advanced`, `com.vmware.js.allow-local-process` visible | Control Center System Properties page |
+| 2.15 | `ch02/fig-2-15.png` | Orchestrator Client, run of action `com.vcfguide.chapter2/resolveHost` with `vc01.vmw.lab`, **Logs** tab showing the IP address | — |
