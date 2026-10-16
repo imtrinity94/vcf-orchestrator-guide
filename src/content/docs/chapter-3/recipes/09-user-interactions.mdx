@@ -1,0 +1,167 @@
+---
+title: User interactions and approvals
+description: Recipe 3.9 — pause a run until a person answers a form, with a deadline, a timeout path, a choice of who may answer, and an answer sent through the REST API.
+sidebar:
+  label: 3.9 User interactions and approvals
+  order: 9
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+Some steps need a person. A change needs an approval, a request is missing a detail, or an operator has to confirm that a maintenance window really has started. Orchestrator handles this with the **User interaction** element. When a run reaches it, the run stops and waits for someone to fill in a small form. Their answers go into the run's variables, and the workflow carries on with them.
+
+In this recipe you build `Approve a VM description`. It asks for approval before it runs `Describe a VM` from recipe 3.1, logs the reason if the request is rejected, and gives up cleanly if nobody answers in time. The workflow only reads from vCenter, so you can try the whole approval loop without risk.
+
+<Recipe type="ready">
+
+- The workflow `Describe a VM` from recipe 3.1, and the folder **VCF Orchestrator Guide/Chapter 3**.
+- A second login to answer with, if you want to see the approval from the approver's side. It doesn't need an Orchestrator role: Broadcom's role table says users without one can still respond to user interaction requests.
+- The idea of an exception path from recipe 3.4, and of the long-running elements from recipe 3.7.
+
+</Recipe>
+
+<Recipe type="how">
+
+**Set up the workflow**
+
+1. Create a workflow called `Approve a VM description` in **VCF Orchestrator Guide/Chapter 3**.
+2. On the **Inputs/Outputs** tab, add:
+   - An input `vm` of type `VC:VirtualMachine`.
+   - An input `approvalHours` of type `number`. On the **Input Form** tab later, you can give it a default of `24`.
+   - An output `summary` of type `string`.
+3. On the **Variables** tab, add four variables:
+
+| Name | Type | Holds |
+|---|---|---|
+| `approvalDeadline` | `Date` | The time the request stops waiting |
+| `approved` | `boolean` | The approver's answer |
+| `approverComment` | `string` | The approver's reason |
+| `approvalError` | `string` | The error if nobody answers in time |
+
+4. On the **Schema** tab, add a scriptable task called `Set the deadline`, with `approvalHours` in and `approvalDeadline` out:
+
+```javascript title="Approve a VM description — Set the deadline"
+// approvalHours can be a fraction: 0.05 is three minutes
+var waitMs = Math.round(approvalHours * 60 * 60 * 1000);
+approvalDeadline = new Date(new Date().getTime() + waitMs);
+System.log("Waiting for approval until " + approvalDeadline);
+```
+
+**Add the user interaction**
+
+5. From the **Generic** group of the palette, drag a **User interaction** onto the arrow after `Set the deadline`. Name it `Ask for approval`.
+6. Select it. On its inputs, bind `timeout.date` to `approvalDeadline`. Leave `security.group`, `security.assignees`, and `security.assignee.groups` unbound for now. **There's more** shows what they do.
+7. Add the two answers the approver gives. In the element's form inputs, add the variables `approved` and `approverComment`. These are the fields the approver sees, and their answers are written back to these variables.
+8. Click **Edit input form** on the element. Give `approved` the label `Approve this request` and `approverComment` the label `Reason`, and make `approverComment` required. The editor is the same one you used on the **Input Form** tab in recipe 3.6.
+
+<Figure n="3.30" caption="A user interaction with its deadline bound and two answer fields."
+  capture="<b>Schema</b> tab of <b>Approve a VM description</b>, <b>Ask for approval</b> selected. Properties pane showing <code>timeout.date</code> bound to <code>approvalDeadline</code>, the <code>security.*</code> inputs unbound, and <code>approved</code> and <code>approverComment</code> listed as the element's form inputs." />
+
+<Verify>Walk steps 5–8 on 9.1.1 and note the exact names of the user interaction's property tabs (the 8.x docs mention <b>Options</b> for the <code>security.*</code> and <code>timeout.date</code> inputs, and <b>Form Inputs</b> > <b>Edit Input Form</b> for the answer fields), and the type the client shows for each <code>security.*</code> input.</Verify>
+
+**Act on the answer**
+
+9. Drag a **Decision** onto the arrow after `Ask for approval`. Name it `Approved?`, choose the variable `approved`, and the condition **is true**.
+10. On the decision's **true** path, drag the workflow `Describe a VM` from the library. Bind its input `vm` to `vm` and its output `summary` to `summary`.
+11. On the **false** path, add a scriptable task called `Log the rejection`, with `vm` and `approverComment` in and `summary` out, and link it to an end element:
+
+```javascript title="Approve a VM description — Log the rejection"
+summary = "Request for " + vm.name + " rejected: " + approverComment;
+System.warn(summary);
+```
+
+**Handle the timeout**
+
+12. Select `Ask for approval` again. Under its exception handling, choose `approvalError` as the variable that receives the error.
+13. Drag a scriptable task onto `Ask for approval` itself, not onto an arrow. Orchestrator draws a red dashed exception arrow to it. Name it `Log the timeout`, with `approvalDeadline` and `approvalError` in and `summary` out, and link it to an end element:
+
+```javascript title="Approve a VM description — Log the timeout"
+summary = "No answer before " + approvalDeadline + ". Nothing was done.";
+System.warn(summary + " (" + approvalError + ")");
+```
+
+14. Click **Save**.
+
+<Figure n="3.31" caption="The finished approval workflow, with a decision on the answer and an exception path for the timeout."
+  capture="Full schema of <b>Approve a VM description</b>: Start, <b>Set the deadline</b>, <b>Ask for approval</b>, <b>Approved?</b> decision with <b>Describe a VM</b> on the true path and <b>Log the rejection</b> on the false path, and a red dashed exception arrow from <b>Ask for approval</b> to <b>Log the timeout</b>." />
+
+**Answer it**
+
+15. Run the workflow with any VM and `approvalHours` = `1`. The run logs its deadline, then stops in the **Waiting** state.
+16. As the approver, open **Activity** > **Waiting for Input**. The run appears there, and in the notifications list at the top right of the client. Open it to see the form from step 8.
+17. Select **Approve this request**, type a reason, and click **Answer**. The run carries on, runs `Describe a VM`, and completes with the VM's summary in its `summary` output.
+
+<Figure n="3.32" caption="The approver's view of a waiting user interaction."
+  capture="<b>Activity</b> > <b>Waiting for Input</b> with one entry for <b>Approve a VM description</b>, and the answer form open beside it: <b>Approve this request</b> selected, <b>Reason</b> = <code>Lab test</code>, <b>Answer</b> button visible." />
+
+18. Run it again and answer with **Approve this request** cleared. The run follows the false path and logs the rejection with your reason.
+19. Run it a third time with `approvalHours` = `0.05` and don't answer. After about three minutes, the run follows the exception path to `Log the timeout` and completes.
+
+<Verify>On 9.1.1, confirm the menu name <b>Activity</b> > <b>Waiting for Input</b>, the label of the button that submits the answer, the state shown for a run waiting on a user interaction, and that a timed-out user interaction follows the element's exception path with the run ending <b>Completed</b> rather than <b>Failed</b>.</Verify>
+
+</Recipe>
+
+<Recipe type="works">
+
+A user interaction is a long-running element, like the waiting timer and waiting event in recipe 3.7. When a run reaches it, Orchestrator saves the run to its database, frees the run's thread, and creates a **user interaction** object: a record that says which run is waiting, which fields it needs, who may answer, and until when. The run sits in the **Waiting** state, using no thread, for as long as it takes. A restart of the server doesn't lose it.
+
+When someone answers, Orchestrator checks that they're allowed to, writes their values into the variables listed as the element's form inputs, and picks the run up again at the next element. From there it's an ordinary run. The decision in step 9 reads `approved` like any other variable.
+
+Its special inputs control the waiting:
+
+- `timeout.date` is the deadline. When it passes with no answer, the element throws an exception. With an exception path, as in step 13, the workflow handles it. Without one, the run fails. Leave it unbound and the run waits for ever.
+- `security.group`, `security.assignees`, and `security.assignee.groups` say who may answer. With none of them bound, the request isn't restricted to particular people.
+
+Answering is just another call to the Orchestrator REST API. The client calls it when you click **Answer**, and so can any other system, which is how a ticketing tool or a chat bot can approve a run.
+
+<ThenNow
+  then="Add a <b>User Interaction</b> in the Java client, list the answer fields on its <b>External inputs</b> tab, and lay out their form on its <b>Presentation</b> tab. Approvers answer from the Java client or from a web view."
+  now="Add a <b>User interaction</b> in the browser client and design its answer form with the same form editor as the run form. Approvers answer from <b>Activity</b> > <b>Waiting for Input</b>, or through the REST API." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**Choose who answers.** Bind one of the `security` inputs to restrict the approvers. `security.group` takes one group, and only its members can answer. `security.assignees` takes a list of users, and `security.assignee.groups` a list of groups. Which users and groups you can pick depends on the authentication provider from Chapter 1. With vSphere authentication, they come from vCenter Single Sign-On. With a VCF Automation organization, they come from that organization.
+
+<Verify>On 9.1.1 with vSphere authentication, bind <code>security.assignees</code> to one user and confirm that another non-administrator can't answer, and that an Orchestrator administrator can. Record the type the client uses for each <code>security.*</code> input (in 8.x exports they were <code>LdapGroup</code>, <code>Array/LdapUser</code>, and <code>Array/LdapGroup</code>), and how a user or group value is picked in the form.</Verify>
+
+**Answer from a script or another system.** The REST API has one call to read a waiting interaction and one to answer it, both under the run that's waiting. To find the waiting runs, list `GET /vco/api/interactions`. To read the form of one, call `GET` on the run's `interaction`, and to answer, `POST` the values to the same address:
+
+```bash title="Answering a user interaction through the REST API"
+# WF_ID is the workflow's ID, RUN_ID the waiting run's ID, TOKEN a bearer token (Chapter 7)
+curl -k -X POST \
+  "https://vco01.vmw.lab/vco/api/workflows/$WF_ID/executions/$RUN_ID/interaction" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"parameters": [
+        {"name": "approved", "type": "boolean", "value": {"boolean": {"value": true}}},
+        {"name": "approverComment", "type": "string", "value": {"string": {"value": "Approved from the API"}}}
+      ]}'
+```
+
+The call returns `204 No Content` when the answer is accepted. A `DELETE` on the same address cancels the interaction. Chapter 7 shows how to get a token and find workflow and run IDs.
+
+<Verify>Run the <code>curl</code> call above against <code>vco01</code> on 9.1.1 with a bearer token, and confirm the <code>204</code> response and that the run carries on. Check whether <code>/vco/api</code> is still the base path on 9.1 (the 9.1 API reference lists the paths relative to it).</Verify>
+
+**Approvals in VCF Automation.** VCF Automation has its own approval policies for catalog requests. They're separate from user interactions and answered in VCF Automation, not in the Orchestrator Client. Use an approval policy when the question is "may this person order this item?", and a user interaction when a step in the middle of a workflow needs a decision. Chapter 8 covers the VCF Automation side.
+
+**Send a reminder.** Nobody watches **Waiting for Input** all day. Before the user interaction, send the approver an email or chat message with the VM name, the deadline, and a link to the client. The mail plug-in is covered in Chapter 5.
+
+**Keep deadlines realistic.** A request that waits for a week ties up nothing on the server, but it does keep a half-finished change in flight. Pick a deadline that matches how the approvers work, and make the timeout path tell someone that the request expired.
+
+**Ask for more than yes or no.** The answer form can hold any input type, with defaults, drop-downs filled by actions, and validations, exactly as in recipe 3.6. An approver can pick a datastore, correct a hostname, or choose a change window, and the workflow uses the answer like any other variable.
+
+</Recipe>
+
+<Recipe type="see">
+
+- [3.4 Handling errors and exceptions](../04-handling-errors/), for exception paths.
+- [3.6 Building input forms](../06-input-forms/), for the form editor used in step 8.
+- [3.7 Waiting tasks and custom events](../07-waiting-and-events/), for the other long-running elements.
+- Broadcom TechDocs (VCF 9): [Set the User Interaction security.group Variable](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/developing-workflows-with-vcf-operations-orchestrator/vcfo-requesting-user-interactions-while-a-workflow-runs/vcfo-set-the-user-interaction-security-group-variable.html), [Set the timeout.date Variable to an Absolute Date](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/developing-workflows-with-vcf-operations-orchestrator/vcfo-requesting-user-interactions-while-a-workflow-runs/vcfo-set-the-timeoutdate-variable-to-an-absolute-date.html), [Create the Input Parameters Dialog Box for the User Interaction](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/developing-workflows-with-vcf-operations-orchestrator/vcfo-requesting-user-interactions-while-a-workflow-runs/vcfo-create-the-input-parameters-dialog-box-for-the-user-interaction.html), [Define User Interaction Exception Behavior](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/developing-workflows-with-vcf-operations-orchestrator/vcfo-requesting-user-interactions-while-a-workflow-runs/vcfo-define-user-interaction-exception-behavior.html), and [VCF Operations orchestrator User Roles](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/setting-up-the-vrealize-orchestrator-client/vcfo-user-roles-overview.html).
+- Broadcom developer documentation (Orchestrator API 9.1): [Workflow Run Service](https://developer.broadcom.com/xapis/vcf-operations-orchestrator-api/9.1/workflow-run-service/), [Answer User Interaction](https://developer.broadcom.com/xapis/vcf-operations-orchestrator-api/9.1/workflows/workflowId/executions/executionId/interaction/post/), and [List User Interactions](https://developer.broadcom.com/xapis/vcf-operations-orchestrator-api/9.1/interactions/get/).
+
+</Recipe>

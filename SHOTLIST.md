@@ -71,3 +71,20 @@ Lab: VCF 9.1, Orchestrator 9.1.1. Save PNGs at roughly 1400 px wide, crop to the
 | 3.27 | `ch03/fig-3-27.png` | **Schema** tab of **Start a VM description**: **Asynchronous workflow** element calling **Describe a VM** selected, `vm` under **Inputs**, `describeToken` under **Output Options**; **Report the token** | Asynchronous workflow element |
 | 3.28 | `ch03/fig-3-28.png` | **Variables** tab of **Describe VMs in parallel**: `describeWorkflow` = **Describe a VM**, `timeoutSeconds` = `300`, `tokens` (`Array/WorkflowToken`) | — |
 | 3.29 | `ch03/fig-3-29.png` | **Activity > Workflow Runs**: one **Describe VMs in parallel** run and three **Describe a VM** runs started within a second of each other | Nested workflows figure |
+| 3.30 | `ch03/fig-3-30.png` | **Schema** tab of **Approve a VM description**, **Ask for approval** selected: `timeout.date` bound to `approvalDeadline`, `security.*` inputs unbound, `approved` and `approverComment` as form inputs | Java client User Interaction External inputs tab |
+| 3.31 | `ch03/fig-3-31.png` | Full schema of **Approve a VM description**: **Set the deadline**, **Ask for approval**, **Approved?** with **Describe a VM** (true) and **Log the rejection** (false), red dashed exception arrow to **Log the timeout** | User interaction schema |
+| 3.32 | `ch03/fig-3-32.png` | **Activity > Waiting for Input** with one **Approve a VM description** entry, answer form open: **Approve this request** selected, **Reason** = `Lab test`, **Answer** button | Java client answer dialog |
+
+## Chapter 4
+
+| Figure | File | What to capture | Replaces (old cookbook) |
+|---|---|---|---|
+| 4.1 | `ch04/fig-4-1.png` | Run of action `com.vcfguide.chapter4/probeLanguage`, **Logs** tab: *yes* info lines and *no* warning lines, one per feature | — |
+| 4.2 | `ch04/fig-4-2.png` | **API Explorer**, search `System`, **System** object expanded, `getModule` selected with its parameter and return type | Java client API Explorer |
+| 4.3 | `ch04/fig-4-3.png` | Run dialog of action `getVmFacts` after a run: `vm` = a lab VM, result with `name`, `powerState`, `cpus`, `memoryMb`, `guestOs` | — |
+| 4.4 | `ch04/fig-4-4.png` | **Version History** tab of `getVmFacts`: versions `1.0.0` and `1.1.0`, compare view with the added `facts.put("host", …)` line highlighted | Java client action version dialog |
+| 4.5 | `ch04/fig-4-5.png` | References or dependencies view of `com.vcfguide.chapter3/findVmsByName`, listing **List VMs by name** and **Report VMs** | Java client "Find elements that use this element" |
+| 4.6 | `ch04/fig-4-6.png` | **Script** tab of action `splitHostName`: **Runtime** = **Python 3.10**, input `fqdn`, return type `Properties`, default **Memory limit** and **Timeout**, `handler` function | — |
+| 4.7 | `ch04/fig-4-7.png` | **System Settings > Performance and Features > Environment Repositories**, **Default Public Repositories** on, **Manage Repositories** visible | — |
+| 4.8 | `ch04/fig-4-8.png` | Environment `vcfguide-python-crypto`, **Download Logs** tab: pip installing `cryptography-43.0.3` and `cffi`, no errors | — |
+| 4.9 | `ch04/fig-4-9.png` | Run of action `getCertificateExpiry` with `vc01.vmw.lab`, `443`: result `host`, `subject`, `notAfter`, `daysLeft`, and the printed log line | — |
