@@ -1,0 +1,157 @@
+---
+title: Writing and reusing actions
+description: Recipe 4.2 — design small actions that do one job, call them from other actions, change them without breaking their callers, and find out who uses them.
+sidebar:
+  label: 4.2 Writing and reusing actions
+  order: 2
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+Recipe 3.2 wrote a first action and called it from a workflow. Once you have a few dozen workflows, actions become the real library of your Orchestrator: the place where "get the facts about a VM" or "turn a size into a readable string" is written once and used everywhere. That only works if the actions are small, predictable, and safe to change.
+
+In this recipe you build three actions in `com.vcfguide.chapter4`. `getVmFacts` collects a VM's details into a `Properties` object. `formatVmFacts` turns those facts into one line of text. `describeVm` calls the other two. Then you change `getVmFacts` the safe way, look at its version history, and check who depends on it.
+
+<Recipe type="ready">
+
+- The action module `com.vcfguide.chapter4` from recipe 4.1.
+- The vCenter registered in recipe 1.9, `vc01.vmw.lab`, with at least one VM. The actions only read from it.
+
+</Recipe>
+
+<Recipe type="how">
+
+**An action that gathers facts**
+
+1. In **Library** > **Actions**, create the action `getVmFacts` in the module `com.vcfguide.chapter4`.
+2. On the **General** tab, set the **Version** to `1.0.0` and add the description `Returns the name, power state, size, and guest OS of a VM as Properties.`
+3. On the **Script** tab, add one input, `vm`, of type `VC:VirtualMachine`, and set the **Return type** to `Properties`. Enter this script and click **Save**:
+
+```javascript title="com.vcfguide.chapter4/getVmFacts"
+// Collects the facts most workflows need about one VM. Reads only.
+if (!vm) {
+    throw "getVmFacts: the input vm is required";
+}
+var facts = new Properties();
+facts.put("name", vm.name);
+facts.put("powerState", vm.runtime.powerState.value);
+facts.put("cpus", vm.summary.config.numCpu);
+facts.put("memoryMb", vm.summary.config.memorySizeMB);
+facts.put("guestOs", vm.summary.config.guestFullName);
+return facts;
+```
+
+4. Click **Run**, choose a VM, and run it. The result shows the five keys and their values.
+
+<Figure n="4.3" caption="A test run of getVmFacts, with its Properties result."
+  capture="Run dialog of action <code>com.vcfguide.chapter4/getVmFacts</code> after a run: input <code>vm</code> set to a lab VM, result showing <code>name</code>, <code>powerState</code>, <code>cpus</code>, <code>memoryMb</code>, and <code>guestOs</code>." />
+
+**An action that formats them**
+
+5. Create the action `formatVmFacts` in the same module, with one input `facts` of type `Properties` and the return type `string`:
+
+```javascript title="com.vcfguide.chapter4/formatVmFacts"
+// Turns the Properties from getVmFacts into one readable line.
+if (!facts || !facts.get("name")) {
+    throw "formatVmFacts: facts must come from getVmFacts";
+}
+return facts.get("name") + ": " + facts.get("powerState") + ", " +
+    facts.get("cpus") + " vCPU, " + facts.get("memoryMb") + " MB, " +
+    facts.get("guestOs");
+```
+
+**An action that calls the other two**
+
+6. Create the action `describeVm`, with one input `vm` of type `VC:VirtualMachine` and the return type `string`:
+
+```javascript title="com.vcfguide.chapter4/describeVm"
+var chapter4 = System.getModule("com.vcfguide.chapter4");
+var facts = chapter4.getVmFacts(vm);
+var line = chapter4.formatVmFacts(facts);
+System.log(line);
+return line;
+```
+
+7. Run `describeVm` with a VM. The log and the result show one line, built by the two actions it called.
+
+**Change an action without breaking its callers**
+
+8. Open `getVmFacts` again. Add a sixth fact after the `guestOs` line:
+
+```javascript title="com.vcfguide.chapter4/getVmFacts — added line"
+facts.put("host", vm.runtime.host ? vm.runtime.host.name : "");
+```
+
+9. On the **General** tab, change the **Version** to `1.1.0` and click **Save**. Callers that only read the first five keys, such as `formatVmFacts`, carry on unchanged.
+10. Open the **Version History** tab. Each save is listed. Select version `1.0.0` and compare it with the current one to see the added line. From the same tab you can restore an older version, which saves it again as a new version.
+
+<Figure n="4.4" caption="Comparing two versions of an action."
+  capture="<b>Version History</b> tab of <code>getVmFacts</code>, versions <code>1.0.0</code> and <code>1.1.0</code> listed, the compare view open with the added <code>facts.put(&quot;host&quot;, …)</code> line highlighted." />
+
+<Verify>On 9.1.1, check the <b>General</b> tab fields (<b>Version</b>, <b>Description</b>), whether saving without changing the version number bumps it automatically, and the compare and restore controls on the <b>Version History</b> tab.</Verify>
+
+**Find out who uses an action**
+
+11. Before you change an action's inputs, rename it, or delete it, check what calls it. Open the action and look for its references or dependencies view, which lists the workflows that use it as an action element.
+
+<Figure n="4.5" caption="The workflows and actions that use an action."
+  capture="The references or dependencies view of action <code>com.vcfguide.chapter3/findVmsByName</code>, listing the workflows <b>List VMs by name</b> and <b>Report VMs</b> from Chapter 3." />
+
+<Verify>Find where the 9.1.1 client shows an action's references, and check whether it lists calls made from scripts with <code>System.getModule</code> or only action elements on schemas. The 9.1 REST API has <code>GET /actions/&#123;id&#125;/dependencies</code> for the same question.</Verify>
+
+</Recipe>
+
+<Recipe type="works">
+
+An action is a JavaScript function with a name, typed inputs, and one typed return value, saved once in Orchestrator's database. Its full name is its module plus its name, `com.vcfguide.chapter4/getVmFacts`. The module is only a namespace, written like a Java package, which keeps your actions apart from the hundreds that ship with Orchestrator and its plug-ins under `com.vmware.library`.
+
+`System.getModule("com.vcfguide.chapter4")` returns an object whose methods are the module's actions. Calling `chapter4.getVmFacts(vm)` runs that action straight away, in the same thread as the script that called it, and hands back its return value. The action can't see the caller's variables. It only sees its own inputs, which keeps it predictable.
+
+Arguments are passed **by position**, in the order the inputs are declared on the action's **Script** tab. The names don't matter to the caller. That's the one thing that makes changing an action risky:
+
+- Adding a key to a returned `Properties`, as in step 8, is safe. Callers ignore keys they don't read.
+- Adding a new input **at the end** is fairly safe. Old callers pass nothing for it, so it arrives as `null` or `undefined`, and the action can fall back to a default.
+- Adding an input in the middle, reordering inputs, or changing a type silently breaks every caller that uses the old order.
+- Renaming an action or moving it to another module breaks every script that calls it with `System.getModule`, and can break action elements too. Check its references first, as in step 11.
+
+The **Version** field is a label for people. Orchestrator doesn't keep several callable versions side by side: every caller always gets the latest saved script. Raising the version tells the next reader, and the next package import (Chapter 6), that something changed. The **Version History** tab keeps the old scripts so you can see what changed and go back.
+
+<ThenNow
+  then="Create actions in the Java client's <b>Actions</b> view, with inputs and the return type on the <b>Scripting</b> tab, and raise the version number by hand. Compare versions only after exporting them."
+  now="Create actions under <b>Library</b> > <b>Actions</b> in the browser. Every save is kept on the <b>Version History</b> tab, ready to compare or restore, and an action can be written in Python, Node.js, or PowerShell as well as JavaScript." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**One job per action.** Name actions with a verb and an object: `getVmFacts`, `findVmsByName`, `formatVmFacts`. If you can't name an action without "and", it's two actions. Small actions are easier to test with **Run**, easier to reuse, and easier to fix.
+
+**Check inputs and fail loudly.** A clear `throw` at the top of an action, as in steps 3 and 5, turns a confusing failure deep inside a workflow into a one-line message that says what was wrong. The caller's exception path (recipe 3.4) receives that message.
+
+**Return Orchestrator types.** Return a type that can be bound and stored with a run: a plug-in type, a `string`, a `number`, an `Array/…`, or `Properties`. The return type **Any** accepts anything, but it moves type checking from save time to run time, where it costs more. Keep it for actions that really return different things.
+
+**Don't edit library actions.** Actions under `com.vmware.library` belong to Orchestrator and its plug-ins, and an upgrade can replace them. If one is nearly right, copy its script into your own module and change the copy.
+
+**Actions in forms.** Recipe 3.6 used actions to fill drop-downs and validate fields. Those run every time the form changes, so keep them fast and free of side effects. An action that writes something has no place behind a form.
+
+<Verify>Check whether 9.1.1 has the action cache described in Broadcom KB 421999 for 8.18.1, where a workflow run within about two minutes of saving an action could still use the old script.</Verify>
+
+**Deleting an action.** Check its references first. Through the REST API, `DELETE /actions/{id}` refuses an action that's still referenced unless you add `force=true`, which leaves those workflows broken. Fix the callers first.
+
+**Moving actions between Orchestrators.** You can export a single action to a file and import it elsewhere, but it's easy to forget the actions it calls. A **package** (Chapter 6) carries an action together with everything it depends on.
+
+</Recipe>
+
+<Recipe type="see">
+
+- [3.2 Scriptable tasks and the schema canvas](../../../chapter-3/recipes/02-scriptable-tasks/), for action elements and **Promote**.
+- [4.1 JavaScript in Orchestrator: the Rhino engine](../01-rhino-engine/), for the API Explorer and the scripting objects.
+- [4.3 Python actions and environments](../03-python-actions/), for actions in another language.
+- Broadcom TechDocs (Aria Automation Orchestrator 8.18): [Create Actions in the Automation Orchestrator Client](https://techdocs.broadcom.com/us/en/vmware-cis/aria/aria-automation/8-18/using-the-vrealize-orchestrator-client-8-18/managing-actions-in-vro/create-actions-in-the-orchestrator-operations-client.html).
+- VMware Docs (Aria Automation Orchestrator 8.13–8.14): [Run an action](https://docs.vmware.com/en/VMware-Aria-Automation/8.13/Using-Automation-Orchestrator/GUID-65C964C9-2AD4-4AB1-AAE6-EADB5A0AFBEA.html) and [Version history](https://docs.vmware.com/en/VMware-Aria-Automation/8.14/Using-Automation-Orchestrator/GUID-68FF2195-E08C-472F-888B-7503229390A2.html).
+- Broadcom developer documentation (Orchestrator API 9.1): [Create Action](https://developer.broadcom.com/xapis/vcf-operations-orchestrator-api/9.1/actions/post/), [Delete Action](https://developer.broadcom.com/xapis/vcf-operations-orchestrator-api/9.1/actions/actionId/delete/), and [Action Dependencies](https://developer.broadcom.com/xapis/vcf-operations-orchestrator-api/9.1/actions/actionId/dependencies/get/).
+- Broadcom KB: [KB 421999](https://knowledge.broadcom.com/external/article/421999/aria-automation-orchestrator-different.html).
+
+</Recipe>

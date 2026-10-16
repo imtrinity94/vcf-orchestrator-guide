@@ -1,9 +1,51 @@
 ---
-title: "Scripting and environments"
-description: Chapter 4 of the VCF Orchestrator Guide. Coming soon.
+title: Scripting and environments
+description: Chapter 4 — the code inside workflows and actions. JavaScript in the Rhino engine, reusable actions, and Python, Node.js, and PowerShell with their environments.
+sidebar:
+  label: Introduction
 ---
+import Opener from '../../../components/Opener.astro';
+import ThenNow from '../../../components/ThenNow.astro';
 import ComingSoon from '../../../components/ComingSoon.astro';
 
-Writing the code inside workflows and actions, in JavaScript and the polyglot runtimes.
+<Opener n={4} recipes={[
+  { title: 'JavaScript in Orchestrator: the Rhino engine', href: 'recipes/01-rhino-engine/' },
+  { title: 'Writing and reusing actions', href: 'recipes/02-actions/' },
+  { title: 'Python actions and environments', href: 'recipes/03-python-actions/' },
+]} />
 
-<ComingSoon topics={["JavaScript in Orchestrator: the Rhino engine","Writing and reusing actions","Python actions and environments","Node.js actions","PowerShell and PowerCLI actions","Logging from scripts","Working with configuration elements in code"]} />
+Chapter 3 drew workflows. This chapter is about the code inside them. Every scriptable task, action, custom decision, and form action is a script, and the quality of those scripts decides whether a workflow is easy to trust and change, or a puzzle for whoever opens it next.
+
+Recipe 4.1 starts with the engine that runs your JavaScript, and why this book keeps to plain ES5.1. Recipe 4.2 turns scripts into a library of small actions that other workflows call, and shows how to change them without breaking anything. Recipe 4.3 steps outside JavaScript to Python, and to the environments that give a script its packages. The recipes still to come cover Node.js and PowerShell, logging, and the configuration elements that keep settings out of your code.
+
+## The examples
+
+The examples in this chapter are actions, so they all go in one module:
+
+| Object | Name |
+|---|---|
+| Action module | `com.vcfguide.chapter4` |
+| Workflow folder, for anything that needs one | **VCF Orchestrator Guide/Chapter 4** |
+| Environment | `vcfguide-python-crypto` |
+
+Like Chapter 3, the examples only read from the lab: the vCenter `vc01.vmw.lab` and its VMs, and the TLS certificate it presents. JavaScript samples are plain ES5.1. Python samples are ordinary Python 3.10.
+
+## What changed since vRO 7
+
+Writing JavaScript in Orchestrator has hardly changed. Almost everything around it has.
+
+<ThenNow
+  then="Write every script in JavaScript, in the Java client's script editor, with the API Explorer in a separate window."
+  now="Write scripts in JavaScript, Python, Node.js, PowerShell, or PowerCLI, in the browser client's editor, with autocomplete and the API Explorer in the same client." />
+
+<ThenNow
+  then="Reach for an external library by copying its code into an action, or by running it on another machine over SSH."
+  now="Add packages from PyPI, npm, or a NuGet feed to an <b>environment</b>, and choose that environment as the runtime of an action." />
+
+<ThenNow
+  then="Keep track of action changes with a version number you raise by hand."
+  now="Every save of an action is kept on its <b>Version History</b> tab, ready to compare and restore." />
+
+## Still to come in this chapter
+
+<ComingSoon topics={["Node.js actions","PowerShell and PowerCLI actions","Logging from scripts","Working with configuration elements in code"]} />

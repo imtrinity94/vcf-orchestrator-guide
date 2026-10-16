@@ -1,0 +1,154 @@
+---
+title: "JavaScript in Orchestrator: the Rhino engine"
+description: Recipe 4.1 — find out which JavaScript your Orchestrator accepts, find your way round the scripting API, and avoid the traps of a JavaScript engine that runs inside Java.
+sidebar:
+  label: 4.1 The Rhino engine
+  order: 1
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+Every JavaScript script you write in Orchestrator runs in **Rhino**, a JavaScript engine written in Java by the Mozilla project. That includes scriptable tasks, actions, custom decisions, and the actions behind input forms. Rhino runs inside the Orchestrator server's Java process, so your scripts can call Java objects as if they were JavaScript, and plug-ins can hand you objects such as a vCenter VM without any translation layer.
+
+It also means the JavaScript you know from browsers and Node.js only partly applies. There's no `window`, no `setTimeout`, no `require`, and no `fetch`, and some newer syntax may or may not be accepted. In this recipe you write a small action that asks the engine which features it supports, then you learn to look things up in the scripting API instead of guessing.
+
+<Recipe type="ready">
+
+- A login with a role that can create actions, such as **Workflow designer** or administrator.
+- An action module for this chapter, `com.vcfguide.chapter4`. You create it in step 1.
+
+</Recipe>
+
+<Recipe type="how">
+
+**Ask the engine what it accepts**
+
+1. Go to **Library** > **Actions** and click **New Action**. Enter the name `probeLanguage` and the module `com.vcfguide.chapter4`, and click **Create**.
+2. On the **Script** tab, leave the inputs empty and set the **Return type** to `Properties`.
+3. Enter this script and click **Save**. Each test is compiled separately by `eval` inside `try`, so a feature the engine doesn't know fails only its own test:
+
+```javascript title="com.vcfguide.chapter4/probeLanguage"
+// Reports which newer JavaScript features this Orchestrator's Rhino engine accepts.
+// The script itself is plain ES5.1, so it runs on any version.
+var tests = [
+    ["let", "let a = 1; a"],
+    ["const", "const b = 2; b"],
+    ["arrow function", "(function () { var f = (x) => x * 2; return f(2); })()"],
+    ["template literal", "var n = 3; `n is ${n}`"],
+    ["default parameter", "(function (x = 5) { return x; })()"],
+    ["for...of", "var s = 0; for (var v of [1, 2, 3]) { s += v; } s"],
+    ["destructuring", "var o = { p: 1 }; var { p } = o; p"],
+    ["spread", "Math.max(...[1, 2, 3])"],
+    ["class", "(function () { class A {} return typeof A; })()"],
+    ["Array.prototype.includes", "[1, 2, 3].includes(2)"],
+    ["Object.assign", "Object.assign({}, { a: 1 }).a"],
+    ["String.prototype.padStart", "'7'.padStart(3, '0')"]
+];
+var result = new Properties();
+for (var i = 0; i < tests.length; i++) {
+    var name = tests[i][0];
+    try {
+        var value = eval(tests[i][1]);
+        result.put(name, "yes");
+        System.log("yes  " + name + " -> " + value);
+    } catch (e) {
+        result.put(name, "no");
+        System.warn("no   " + name + " (" + e + ")");
+    }
+}
+return result;
+```
+
+4. Click **Run**, then **Run** again in the dialog. The action has no inputs, so it starts at once. Open the **Logs** tab: each feature has a `yes` line or a `no` warning with the error the engine gave. The result shows the same answers as a `Properties` object.
+
+<Figure n="4.1" caption="The probe's log on Orchestrator 9.1.1: one line per feature."
+  capture="Run of action <code>com.vcfguide.chapter4/probeLanguage</code>, <b>Logs</b> tab, with a mix of <i>yes</i> info lines and <i>no</i> warning lines, one per feature tested." />
+
+<Verify>Run <code>probeLanguage</code> on 9.1.1 and record the yes/no result for every feature in the table under <b>How it works</b>. Confirm that <code>eval</code> is allowed in Orchestrator scripts, and that the action run dialog and <b>Logs</b> tab look as described.</Verify>
+
+**Look things up in the API Explorer**
+
+5. Open the **API Explorer** from the navigation pane. It lists every scripting object that Orchestrator and its installed plug-ins offer.
+6. Search for `System` and open it. You'll find the methods used throughout this book, such as `log`, `warn`, `error`, `getModule`, `sleep`, and `nextUUID`, each with its parameters and return type.
+7. Search for `VcVirtualMachine`, the scripting object behind the `VC:VirtualMachine` type. Its properties include `name`, `runtime`, and `summary`, which recipe 3.1 used to build a VM summary.
+
+<Figure n="4.2" caption="The API Explorer, showing the System object."
+  capture="<b>API Explorer</b>, search box with <code>System</code>, the <b>System</b> object expanded with its methods listed, and <code>getModule</code> selected to show its parameter and return type." />
+
+8. Back in the editor of `probeLanguage`, start a new line, type `System.`, and wait. Autocomplete lists the same methods. From a script editor you can also jump to the API Explorer with **Search API**.
+
+<Verify>On 9.1.1, confirm the navigation label <b>API Explorer</b> and where it sits in the navigation pane, the scripting class name <code>VcVirtualMachine</code> as the API Explorer shows it, and the <b>Search API</b> link in the script editor.</Verify>
+
+</Recipe>
+
+<Recipe type="works">
+
+Rhino reads your script, compiles it, and runs it inside the `vco-app` server's Java virtual machine. Before it runs, Orchestrator puts three kinds of name into the script's scope: the bound inputs and outputs of the element (recipe 3.1), the built-in scripting objects such as `System`, `Server`, and `Properties`, and the objects of each plug-in, such as `VcPlugin`. Everything else is standard JavaScript: `Math`, `Date`, `JSON`, `RegExp`, arrays, and objects.
+
+Which JavaScript that is depends on the Rhino version inside Orchestrator. Broadcom doesn't publish it. Community reports give the versions below, and Rhino's own compatibility table says what each one supports in general:
+
+| Orchestrator | Rhino (reported) | What Rhino supports |
+|---|---|---|
+| 7.x and 8.x | 1.7R4 | ECMAScript 5.1 with a few extras such as `let` |
+| 9.0 | 1.7.15 | Adds arrow functions, template literals, `Array.prototype.includes`, and more |
+| 9.1 | 1.8.0 | Adds default parameters and `for...of`, among others |
+
+That a Rhino version *can* parse a feature doesn't mean Orchestrator switches it on: an engine can be started in an older language mode. The probe answers that for your own server.
+
+<Verify>Confirm the Rhino version on 9.0 and 9.1.1. One way: allow <code>org.mozilla.javascript.Context</code> in the class shutter file (recipe 2.8) and log <code>org.mozilla.javascript.Context.getCurrentContext().getImplementationVersion()</code> in a test action.</Verify>
+
+This book keeps every JavaScript sample to plain ES5.1: `var`, `function`, string concatenation, and loops with an index. Content often moves between Orchestrator versions, in packages, in Git, or in a VCF Automation upgrade, and an action that uses an arrow function works on one server and fails to compile on the next. ES5.1 runs everywhere.
+
+**Java under the surface.** Plug-in objects are Java objects that Rhino wraps so they look like JavaScript ones. Most of the time you can't tell. Sometimes a value that comes from Java behaves like an object rather than a JavaScript string, so a strict comparison with `===` fails or `JSON.stringify` gives something odd. When that happens, convert it first with `String(value)`, or a number with `Number(value)`. Scripts can't create arbitrary Java objects. Only the classes in the **class shutter** file are allowed, as recipe 2.8 shows.
+
+<ThenNow
+  then="Scripts run in Rhino 1.7R4, which Broadcom's vRO 7.6 documentation named. Browse the scripting API in the Java client's <b>API Explorer</b>, or in a separate HTML reference."
+  now="Scripts run in a newer Rhino in VCF 9, but Broadcom no longer names the version. The <b>API Explorer</b> is part of the browser client, and a script can also be Python, Node.js, or PowerShell (recipe 4.3)." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**Use `System.log`, not `console.log`.** A script's log lines go to the run's **Logs** tab through `System.log`, `System.warn`, `System.error`, and `System.debug`. Recipe 3.2 introduced them, and a later recipe in this chapter covers logging in depth.
+
+**No timers, no promises.** A script runs from top to bottom and then ends. There's no event loop to call you back later, so `setTimeout` doesn't exist, and a promise never settles after the script ends. To wait, use the elements in recipe 3.7. To call an HTTP service, use the HTTP-REST plug-in (Chapter 5).
+
+**`Properties` or an object?** `Properties` is Orchestrator's own key–value type, backed by Java. Use it for inputs, outputs, and variables, because only Orchestrator types can be bound and saved with a run. Inside a script, a plain JavaScript object is often easier. Convert between them at the edges:
+
+```javascript title="Properties to a plain object and back"
+// props is a Properties variable
+var obj = {};
+var keys = props.keys;
+for (var i = 0; i < keys.length; i++) {
+    obj[keys[i]] = props.get(keys[i]);
+}
+
+var back = new Properties();
+for (var key in obj) {
+    if (obj.hasOwnProperty(key)) {
+        back.put(key, obj[key]);
+    }
+}
+```
+
+**Avoid Rhino's own extensions.** Rhino accepts some syntax that no other engine does, such as `for each (var x in list)`. It works, but it ties the script to Rhino and confuses editors and linters. A plain `for` loop does the same job.
+
+**Write in an IDE, then import.** If you'd rather write modern JavaScript or TypeScript in a code editor, VMware's open-source Build Tools for VMware Aria compile it down to code Orchestrator accepts and package it for import. Chapter 6 covers moving content in and out of Orchestrator.
+
+**Test small pieces as actions.** An action with no inputs, like `probeLanguage`, is the quickest place to try out a few lines. Action runs aren't kept in the run history, so you can run them as often as you like without cluttering **Activity** > **Workflow Runs**.
+
+</Recipe>
+
+<Recipe type="see">
+
+- [2.8 Setting system properties that matter](../../../chapter-2/recipes/08-system-properties/), for the class shutter file.
+- [4.2 Writing and reusing actions](../02-actions/), to build actions that others can call.
+- Broadcom TechDocs (Aria Automation Orchestrator 8.18): [Create Actions in the Automation Orchestrator Client](https://techdocs.broadcom.com/us/en/vmware-cis/aria/aria-automation/8-18/using-the-vrealize-orchestrator-client-8-18/managing-actions-in-vro/create-actions-in-the-orchestrator-operations-client.html).
+- VMware Docs (vRealize Orchestrator 8.9): [Using the API Explorer](https://docs.vmware.com/en/vRealize-Orchestrator/8.9/com.vmware.vrealize.orchestrator-use-plugins.doc/GUID-7CEA3A8A-2E76-42DB-B24A-C36672D5C44D.html).
+- Broadcom Community: [Why does Orchestrator use Mozilla Rhino instead of something more current?](https://community.broadcom.com/vmware-cloud-foundation/discussion/why-does-orchestrator-use-mozilla-rhino-instead-of-something-more-current) and [Easier way to detect Rhino engine version](https://community.broadcom.com/vmware-cloud-foundation/discussion/easier-way-to-detect-rhino-engine-version).
+- Mozilla: [Rhino ES2015+ compatibility table](https://mozilla.github.io/rhino/compat/engines.html).
+- VMware type definitions for the scripting API: [build-tools-for-vmware-aria, o11n-core](https://github.com/vmware/build-tools-for-vmware-aria/blob/main/vro-types/o11n-core/index.d.ts).
+
+</Recipe>
