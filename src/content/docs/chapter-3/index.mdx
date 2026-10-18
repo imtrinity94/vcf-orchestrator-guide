@@ -6,7 +6,6 @@ sidebar:
 ---
 import Opener from '../../../components/Opener.astro';
 import ThenNow from '../../../components/ThenNow.astro';
-import ComingSoon from '../../../components/ComingSoon.astro';
 
 <Opener n={3} recipes={[
   { title: 'Workflow basics: inputs, outputs, and variables', href: 'recipes/01-workflow-basics/' },
@@ -17,11 +16,12 @@ import ComingSoon from '../../../components/ComingSoon.astro';
   { title: 'Building input forms', href: 'recipes/06-input-forms/' },
   { title: 'Waiting tasks and custom events', href: 'recipes/07-waiting-and-events/' },
   { title: 'Asynchronous and nested workflows', href: 'recipes/08-async-and-nested/' },
+  { title: 'User interactions and approvals', href: 'recipes/09-user-interactions/' },
 ]} />
 
 This is the heart of Orchestrator. A workflow is a drawing: elements on a canvas, joined by arrows, with data passed between them through named slots. Chapters 1 and 2 got an Orchestrator running and kept it healthy. From here on you build things with it.
 
-The recipes in this chapter build on each other. Recipe 3.1 makes a two-step workflow and explains how data moves through it. Recipe 3.2 adds a reusable action and the canvas moves you need every day. Recipe 3.3 makes the workflow branch, loop, and repeat itself over a list. Recipe 3.4 teaches it to fail well, and recipe 3.5 shows how to pick up a failed run and step through it. Recipe 3.6 gives the workflow a proper run form. Recipes 3.7 and 3.8 make it wait, and run other workflows alongside it. The last recipe brings people into the run.
+The recipes in this chapter build on each other. Recipe 3.1 makes a two-step workflow and explains how data moves through it. Recipe 3.2 adds a reusable action and the canvas moves you need every day. Recipe 3.3 makes the workflow branch, loop, and repeat itself over a list. Recipe 3.4 teaches it to fail well, and recipe 3.5 shows how to pick up a failed run and step through it. Recipe 3.6 gives the workflow a proper run form. Recipes 3.7 and 3.8 make it wait, and run other workflows alongside it. Recipe 3.9, the last, brings people into the run with an approval step.
 
 ## The example workflows
 
@@ -46,6 +46,3 @@ The ideas in this chapter are almost unchanged since vCO 5.5. The editor around 
   then="Workflow variables are called <b>attributes</b>, and the run dialog is laid out in the <b>Presentation</b> tab."
   now="Attributes are called <b>variables</b>, and the run form is designed in the <b>Input Form</b> tab, which can also call actions to fill in and check values." />
 
-## Still to come in this chapter
-
-<ComingSoon topics={["User interactions and approvals"]} />

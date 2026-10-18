@@ -1,0 +1,185 @@
+---
+title: Python actions and environments
+description: Recipe 4.3 — write an action in Python, give it third-party packages through an environment, and call it from JavaScript.
+sidebar:
+  label: 4.3 Python actions and environments
+  order: 3
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+JavaScript is Orchestrator's native language, but it isn't the only one. An action or a scriptable task can also run **Python**, **Node.js**, **PowerShell**, or **PowerCLI**. Each runs outside the Rhino engine, in its own container, and can use the libraries of that language. That's the reason to choose one: a Python package that parses certificates, talks to a vendor's API, or reads a spreadsheet saves you writing the same thing in ES5.
+
+In this recipe you write a small Python action with no extra packages, then build an **environment** that adds the `cryptography` package, and use it in an action that reports when a server's TLS certificate expires. Last, you call that Python action from JavaScript.
+
+<Recipe type="ready">
+
+- The action module `com.vcfguide.chapter4` from recipe 4.1.
+- Access from the Orchestrator appliance to a Python package repository. That's PyPI on the internet, or an internal mirror that offers the same "simple" index, such as a Nexus or Artifactory proxy.
+- An administrator login, for the repository setting in step 4.
+- A TLS server to test against. The examples use `vc01.vmw.lab` on port 443.
+
+</Recipe>
+
+<Recipe type="how">
+
+**Write a first Python action**
+
+1. In **Library** > **Actions**, create the action `splitHostName` in the module `com.vcfguide.chapter4`.
+2. On the **Script** tab, set the **Runtime** to **Python 3.10**. Add one input, `fqdn`, of type `string`, and set the **Return type** to `Properties`. Leave **Memory limit** and **Timeout** at their defaults.
+3. Replace the sample code with this script and click **Save**:
+
+```python title="com.vcfguide.chapter4/splitHostName"
+def handler(context, inputs):
+    """Splits a fully qualified host name into the host and the domain."""
+    fqdn = inputs["fqdn"].strip().lower()
+    host, _, domain = fqdn.partition(".")
+    print("Run " + str(context.get("executionId")) + ": " + host + " in " + domain)
+    return {"host": host, "domain": domain}
+```
+
+4. Run it with `fqdn` = `vc01.vmw.lab`. The result is `host` = `vc01` and `domain` = `vmw.lab`, and the log shows the line printed by `print`. The first run takes a few seconds longer than a JavaScript action, while Orchestrator starts the Python runtime.
+
+<Figure n="4.6" caption="A Python action: the runtime, the typed inputs and return type, and the handler function."
+  capture="<b>Script</b> tab of action <code>com.vcfguide.chapter4/splitHostName</code>: <b>Runtime</b> = <b>Python 3.10</b>, input <code>fqdn</code> (<code>string</code>), <b>Return type</b> <code>Properties</code>, <b>Memory limit</b> and <b>Timeout</b> at their defaults, and the <code>handler</code> function in the editor." />
+
+<Verify>On 9.1.1, confirm the label <b>Runtime</b> and that it offers <b>Python 3.10</b>, the labels <b>Memory limit</b> and <b>Timeout</b>, the sample code the editor fills in for a new Python action, and the keys of <code>context</code> (the 9.x docs name <code>vroURL</code> and <code>executionId</code>).</Verify>
+
+**Allow a package repository**
+
+5. As an administrator, open **System Settings** > **Performance and Features** > **Environment Repositories**.
+6. Choose where packages come from:
+   - To use PyPI, turn on **Default Public Repositories**. It's off by default.
+   - To use an internal mirror, click **Manage Repositories**, add the mirror's URL, and pick it later for each dependency.
+
+<Figure n="4.7" caption="Allowing Orchestrator to download packages."
+  capture="<b>System Settings</b> > <b>Performance and Features</b> > <b>Environment Repositories</b>, <b>Default Public Repositories</b> switched on, and the <b>Manage Repositories</b> button visible." />
+
+**Build an environment**
+
+7. Go to **Assets** > **Environments** and click **New Environment**.
+8. On the **General** tab, enter the name `vcfguide-python-crypto` and the description `Python 3.10 with cryptography, for the VCF Orchestrator Guide.`
+9. On the **Definitions** tab, set the **Runtime** to **Python 3.10**. Under **Dependencies**, click **Add** and enter:
+   - **Name**: `cryptography`
+   - **Version**: `43.0.3`
+   - **Repository**: the default, or your mirror
+10. Click **Create**. Orchestrator downloads the package and builds the environment. Open the **Download Logs** tab and check that `cryptography` and the packages it needs were installed without errors.
+
+<Figure n="4.8" caption="An environment with one Python dependency, after a successful build."
+  capture="Environment <code>vcfguide-python-crypto</code>, <b>Download Logs</b> tab, showing pip installing <code>cryptography-43.0.3</code> and its dependency <code>cffi</code>, ending without errors." />
+
+<Verify>Walk steps 5–10 on 9.1.1: the menu path to <b>Environment Repositories</b>, the names <b>Default Public Repositories</b> and <b>Manage Repositories</b>, the <b>General</b>, <b>Definitions</b>, and <b>Download Logs</b> tabs, and that <code>cryptography</code> 43.0.3 installs as a ready-built wheel in the Python 3.10 runtime.</Verify>
+
+**Use the environment from an action**
+
+11. Create the action `getCertificateExpiry` in `com.vcfguide.chapter4`. On the **Script** tab, set the **Runtime** to the environment `vcfguide-python-crypto` instead of plain Python 3.10.
+12. Add the inputs `hostName` of type `string` and `port` of type `number`, and set the **Return type** to `Properties`. Enter this script:
+
+```python title="com.vcfguide.chapter4/getCertificateExpiry"
+import socket
+import ssl
+from datetime import datetime, timezone
+
+from cryptography import x509
+
+
+def handler(context, inputs):
+    """Returns when the TLS certificate of hostName:port expires. Reads only."""
+    host = inputs["hostName"]
+    port = int(inputs.get("port") or 443)
+
+    # Read the certificate whoever signed it: we only want its dates
+    tls = ssl.create_default_context()
+    tls.check_hostname = False
+    tls.verify_mode = ssl.CERT_NONE
+    with socket.create_connection((host, port), timeout=10) as sock:
+        with tls.wrap_socket(sock, server_hostname=host) as conn:
+            der = conn.getpeercert(binary_form=True)
+
+    cert = x509.load_der_x509_certificate(der)
+    not_after = cert.not_valid_after_utc
+    days_left = (not_after - datetime.now(timezone.utc)).days
+    print(f"{host}:{port} certificate expires {not_after:%Y-%m-%d} ({days_left} days)")
+    return {
+        "host": host,
+        "subject": cert.subject.rfc4514_string(),
+        "notAfter": not_after.isoformat(),
+        "daysLeft": days_left,
+    }
+```
+
+13. Run it with `hostName` = `vc01.vmw.lab` and `port` = `443`. The result shows the certificate's subject, its expiry date, and the days left.
+
+<Figure n="4.9" caption="The Python action's result: the certificate of vc01.vmw.lab and the days it has left."
+  capture="Run of action <code>getCertificateExpiry</code> with <code>hostName</code> = <code>vc01.vmw.lab</code> and <code>port</code> = <code>443</code>: result with <code>host</code>, <code>subject</code>, <code>notAfter</code>, and <code>daysLeft</code>, and the log line printed by the handler." />
+
+**Call it from JavaScript**
+
+14. Python actions are called like any other. In a JavaScript action or scriptable task:
+
+```javascript title="Calling the Python action from JavaScript"
+var expiry = System.getModule("com.vcfguide.chapter4").getCertificateExpiry("vc01.vmw.lab", 443);
+System.log(expiry.get("host") + " certificate expires in " + expiry.get("daysLeft") + " days");
+if (expiry.get("daysLeft") < 30) {
+    System.warn("Renew the certificate of " + expiry.get("host") + " soon");
+}
+```
+
+<Verify>Check on 9.1.1 that a JavaScript script can call a Python action through <code>System.getModule</code>, that the returned dictionary arrives as <code>Properties</code>, and whether <code>daysLeft</code> arrives as a number. Also confirm that the Python container can reach <code>vc01.vmw.lab</code> on port 443 (it runs on the appliance, so it should resolve lab names).</Verify>
+
+</Recipe>
+
+<Recipe type="works">
+
+A JavaScript action runs inside the Orchestrator server. A Python action doesn't. When it's called, Orchestrator turns the inputs into JSON, starts the chosen runtime in a separate container on the appliance, and calls your function `handler(context, inputs)`. When the function returns, Orchestrator turns its return value back from JSON into the action's return type. That's why the action needs a typed return value, and why a Python function returns a plain `dict` where JavaScript returns `Properties`.
+
+The JSON trip decides what you can pass:
+
+- **Inputs and return values** can be `string`, `number`, `boolean`, `Date`, `Properties`, composite types, and arrays of these. A `dict` maps to `Properties`, and a `list` to an array.
+- **Plug-in objects don't cross.** A Python action can't take a `VC:VirtualMachine` and call its methods, because the object lives in the Java process and the script doesn't. Pass the VM's name or ID as a string, and do the vSphere work in JavaScript or through the vCenter API from Python.
+- **`context`** carries details of the call. The 9.x documentation names `vroURL`, the address of the Orchestrator server, and `executionId`, the ID of the run.
+
+Each runtime has limits per run. The defaults are 64 MB of memory and 180 seconds for Python and Node.js, and 150 MB and 180 seconds for PowerShell and PowerCLI. A run that goes over either limit fails. Change them on the action's **Script** tab, or for every action that uses an environment, on the environment's **Definitions** tab.
+
+An **environment** is a runtime plus the packages and environment variables your scripts need. Orchestrator downloads the packages once, when you create or change the environment, and every action that uses it gets them. Packages come only from the repositories allowed under **Environment Repositories**: PyPI for Python, npm for Node.js, and the PowerShell Gallery or another NuGet v2 feed for PowerShell. In VCF 9 the public repositories are off until an administrator turns them on.
+
+<ThenNow
+  then="Write every script in JavaScript. To use Python or PowerShell, run it on another host through the SSH or PowerShell plug-in, or start a local process after allowing it with a system property."
+  now="Choose Python 3.10, Node.js 22, PowerShell 7.4, or PowerCLI 13 (on PowerShell 7.4) as the runtime of an action or scriptable task, and add packages with an environment." />
+
+<Verify>Confirm the runtime versions on 9.1.1. Broadcom's 9.0 and 9.1 pages on scripting environments list Node.js 22, but the 9.1 core concepts page still says Node.js 20. The REST call <code>GET /vco/api/server-configuration/polyglot-runtimes</code> lists what the server offers.</Verify>
+
+</Recipe>
+
+<Recipe type="more">
+
+**Keep the loop inside Python.** Every call to a Python action starts a runtime, which costs seconds rather than milliseconds. Checking 50 certificates with 50 calls from a JavaScript loop is slow. Pass the list of hosts in one call, as an `Array/string` input, and loop in Python.
+
+**Pin your versions.** Give every dependency an exact version, as in step 9. An environment with no version takes whatever is newest the next time it's rebuilt, and an upgrade of a package you didn't touch can break your action. Change versions on purpose, then run the actions that use the environment.
+
+**Read environment variables with `os.environ`.** Values on the environment's environment variables list reach the script as ordinary process environment variables, for example `os.environ.get("LOG_LEVEL", "INFO")`. Don't keep passwords there: anyone who can open the environment can read them. Pass a secret as an input instead, from a configuration element (later in this chapter).
+
+**Calling Orchestrator back.** On 8.x, `context` also held a function `getToken` that returns a bearer token, so a Python script can call the Orchestrator REST API at `vroURL` as the user who started the run. Test it before you rely on it in VCF 9.
+
+<Verify>Check whether <code>context["getToken"]()</code> exists on 9.1.1 and returns a token that the REST API at <code>context["vroURL"]</code> accepts.</Verify>
+
+**ZIP actions for bundled code.** If a package isn't in any repository you can reach, or your script is several files, set the action's type to **Zip**, import a ZIP file, and set the entry handler. The default, `handler.handler`, means the function `handler` in the file `handler.py` at the top of the ZIP. For a function `main` in `check.py`, enter `check.main`. Put packages in the ZIP with `pip install --target=. <package>` before you zip the folder. An environment is easier to maintain, so prefer one when you can.
+
+**Packages that need system libraries.** A few Python packages need operating system libraries that the runtime image doesn't have, or are compiled for a different system. Broadcom's 9.1 documentation has a page on configuring a Photon OS container for such Python packages. Read it before you fight a failed build in the **Download Logs** tab.
+
+**Debug in your own editor.** Python and Node.js scripts can be debugged from an external IDE, which Broadcom's documentation covers. PowerShell and PowerCLI scripts can't.
+
+</Recipe>
+
+<Recipe type="see">
+
+- [4.2 Writing and reusing actions](../02-actions/), for action design and versions.
+- [2.2 Replacing the appliance certificate](../../../chapter-2/recipes/02-appliance-certificate/), for what to do when `daysLeft` gets small on Orchestrator itself.
+- Broadcom TechDocs (VCF 9.0): [Scripting Environments in VCF Operations Orchestrator](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/scripting-environments-in-vcf-operations-orchestrator.html), [Configuring Scripting Environments](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/scripting-environments-in-vcf-operations-orchestrator/configuring-your-scripting-environment.html), and [Runtime Limits for Scripts](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/scripting-environments-in-vcf-operations-orchestrator/runtime-limits-for-scripts.html).
+- Broadcom TechDocs (VCF 9.1): [Scripting Environments in VCF Operations Orchestrator](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-1/configuration-of-vmware-cloud-foundation-operations-orchestrator/developing-workflows-with-vcf-operations-orchestrator/scripting-environments-in-vcf-operations-orchestrator.html) and [Core Concepts for Using Python, Node.js, and PowerShell Scripts](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-1/configuration-of-vmware-cloud-foundation-operations-orchestrator/developing-workflows-with-vcf-operations-orchestrator/core-concepts-of-multi-language-support.html).
+- Broadcom developer documentation (Orchestrator API 9.1): [Polyglot runtimes](https://developer.broadcom.com/xapis/vcf-operations-orchestrator-api/9.1/data-structures/o11n-polyglot-runtimes/).
+- The `cryptography` package: [x509 reference](https://cryptography.io/en/latest/x509/reference/).
+
+</Recipe>
