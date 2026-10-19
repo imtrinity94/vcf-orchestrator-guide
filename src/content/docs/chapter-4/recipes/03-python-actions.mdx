@@ -159,7 +159,7 @@ An **environment** is a runtime plus the packages and environment variables your
 
 **Pin your versions.** Give every dependency an exact version, as in step 9. An environment with no version takes whatever is newest the next time it's rebuilt, and an upgrade of a package you didn't touch can break your action. Change versions on purpose, then run the actions that use the environment.
 
-**Read environment variables with `os.environ`.** Values on the environment's environment variables list reach the script as ordinary process environment variables, for example `os.environ.get("LOG_LEVEL", "INFO")`. Don't keep passwords there: anyone who can open the environment can read them. Pass a secret as an input instead, from a configuration element (later in this chapter).
+**Read environment variables with `os.environ`.** Values on the environment's environment variables list reach the script as ordinary process environment variables, for example `os.environ.get("LOG_LEVEL", "INFO")`. Don't keep passwords there: anyone who can open the environment can read them. Pass a secret as an input instead, from a configuration element (recipe [4.7](../07-configuration-elements/)).
 
 **Calling Orchestrator back.** On 8.x, `context` also held a function `getToken` that returns a bearer token, so a Python script can call the Orchestrator REST API at `vroURL` as the user who started the run. Test it before you rely on it in VCF 9.
 
