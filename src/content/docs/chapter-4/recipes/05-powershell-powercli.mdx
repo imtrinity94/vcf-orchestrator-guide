@@ -1,0 +1,183 @@
+---
+title: PowerShell and PowerCLI actions
+description: Recipe 4.5 — write an action in PowerShell, connect to vCenter from the PowerCLI runtime, give it enough memory, and keep stray output out of the return value.
+sidebar:
+  label: 4.5 PowerShell and PowerCLI actions
+  order: 5
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+Many VMware administrators already have a drawer full of PowerCLI scripts. Orchestrator can run them as they are, almost: the **PowerShell** runtime runs PowerShell 7.4, and the **PowerCLI** runtime adds the VMware modules on top. That makes a PowerCLI action the shortest path from "I have a script that does this" to "a workflow does this, with a form, permissions, and a log".
+
+PowerShell has two habits that trip people up in Orchestrator. Everything a function outputs becomes part of what it returns, not just the value after `return`. And connecting to vCenter loads a lot of code, which doesn't fit in the default memory limit. In this recipe you write a small PowerShell action to see the first, then a PowerCLI action that lists old snapshots, and you deal with both.
+
+<Recipe type="ready">
+
+- The action module `com.vcfguide.chapter4` from recipe 4.1, and recipe 4.3 for how polyglot actions run.
+- The vCenter `vc01.vmw.lab` with a few VMs, ideally one with a snapshot.
+- A vCenter account with read-only rights for the PowerCLI action. The examples use `svc-vcfguide-ro@vsphere.local`. Recipe 4.7 moves its password into a configuration element. For now you type it in.
+
+</Recipe>
+
+<Recipe type="how">
+
+**A first PowerShell action**
+
+1. In **Library** > **Actions**, create the action `formatUptime` in the module `com.vcfguide.chapter4`.
+2. On the **Script** tab, set the **Runtime** to **PowerShell 7.4**. Add one input, `seconds`, of type `number`, and set the **Return type** to `string`.
+3. The editor fills in a sample `Handler` function. Replace it with this script and click **Save**:
+
+```powershell title="com.vcfguide.chapter4/formatUptime"
+function Handler($context, $inputs) {
+    # Turns a number of seconds into text such as "3 days, 4 hours, 12 minutes".
+    $span = [TimeSpan]::FromSeconds([double]$inputs.seconds)
+    $text = "{0} days, {1} hours, {2} minutes" -f $span.Days, $span.Hours, $span.Minutes
+    Write-Host "Uptime of $($inputs.seconds) seconds is $text"
+    return $text
+}
+```
+
+4. Run it with `seconds` = `273600`. The result is `3 days, 4 hours, 0 minutes`, and the log shows the `Write-Host` line.
+
+<Figure n="4.13" caption="A PowerShell action: the runtime, a typed input, and the Handler function."
+  capture="<b>Script</b> tab of action <code>com.vcfguide.chapter4/formatUptime</code>: <b>Runtime</b> = <b>PowerShell 7.4</b>, input <code>seconds</code> (<code>number</code>), <b>Return type</b> <code>string</code>, and the <code>Handler</code> function in the editor." />
+
+**See what stray output does**
+
+5. Add one line before `return $text`, as if you were checking a value while writing the script:
+
+```powershell title="A line that changes the return value"
+    $span.TotalHours
+```
+
+6. Run it again. The run fails, or returns something other than the text: the action now returns two values, the number of hours and the text, as an array. Delete the line again. Whenever a command writes something you don't want, send it to `Out-Null`, or use `Write-Host` to log it.
+
+<Verify>On 9.1.1, record exactly what step 6 does with a <code>string</code> return type: whether the run fails with a type error, or returns only the first or last value. Also confirm the runtime label <b>PowerShell 7.4</b> and the sample code the editor fills in.</Verify>
+
+**A PowerCLI action that connects to vCenter**
+
+7. Create the action `getSnapshotReport` in `com.vcfguide.chapter4`. On the **Script** tab, set the **Runtime** to **PowerCLI 13 (PowerShell 7.4)**.
+8. Add four inputs: `vcenter` (`string`), `user` (`string`), `password` (`SecureString`), and `maxAgeDays` (`number`). Set the **Return type** to `Properties`.
+9. Raise the limits before the first run: set **Memory limit** to `512` MB and **Timeout** to `300` seconds. The default of 150 MB is too little for loading PowerCLI and connecting to vCenter.
+
+<Figure n="4.14" caption="A PowerCLI action with its memory limit raised for connecting to vCenter."
+  capture="<b>Script</b> tab of action <code>getSnapshotReport</code>: <b>Runtime</b> = <b>PowerCLI 13 (PowerShell 7.4)</b>, inputs <code>vcenter</code>, <code>user</code>, <code>password</code> (<code>SecureString</code>), <code>maxAgeDays</code>, <b>Return type</b> <code>Properties</code>, <b>Memory limit</b> = <code>512</code>, <b>Timeout</b> = <code>300</code>." />
+
+10. Enter this script and click **Save**:
+
+```powershell title="com.vcfguide.chapter4/getSnapshotReport"
+function Handler($context, $inputs) {
+    # Lists snapshots older than maxAgeDays on one vCenter. Reads only.
+    $maxAge = [int]$inputs.maxAgeDays
+    if ($maxAge -le 0) { $maxAge = 7 }
+
+    # Session-only settings. Out-Null keeps their output out of the return value.
+    Set-PowerCLIConfiguration -Scope Session -ParticipateInCeip $false `
+        -InvalidCertificateAction Ignore -Confirm:$false | Out-Null
+
+    $server = Connect-VIServer -Server $inputs.vcenter -User $inputs.user `
+        -Password $inputs.password -ErrorAction Stop
+    try {
+        $cutoff = (Get-Date).AddDays(-$maxAge)
+        $old = Get-VM -Server $server | Get-Snapshot -Server $server |
+            Where-Object { $_.Created -lt $cutoff } | Sort-Object Created
+
+        $lines = @()
+        foreach ($snap in $old) {
+            $days = [int]((Get-Date) - $snap.Created).TotalDays
+            $lines += "{0}: '{1}', {2} days old, {3:N1} GB" -f $snap.VM.Name, $snap.Name, $days, $snap.SizeGB
+        }
+        Write-Host "$($lines.Count) snapshots older than $maxAge days on $($inputs.vcenter)"
+
+        return @{
+            vcenter    = $inputs.vcenter
+            maxAgeDays = $maxAge
+            count      = $lines.Count
+            report     = ($lines -join "`n")
+        }
+    }
+    finally {
+        Disconnect-VIServer -Server $server -Confirm:$false | Out-Null
+    }
+}
+```
+
+11. Run it with `vcenter` = `vc01.vmw.lab`, `user` = `svc-vcfguide-ro@vsphere.local`, the password, and `maxAgeDays` = `7`. The first run takes noticeably longer than later ones while the PowerCLI modules load. The result shows how many snapshots are older than a week, and `report` has one line for each.
+
+<Figure n="4.15" caption="The PowerCLI action's result: old snapshots on vc01.vmw.lab."
+  capture="Run of action <code>getSnapshotReport</code> against <code>vc01.vmw.lab</code> with <code>maxAgeDays</code> = <code>7</code>: result with <code>vcenter</code>, <code>maxAgeDays</code>, <code>count</code>, and a multi-line <code>report</code>, and the <code>Write-Host</code> line in the log. Blur the password." />
+
+<Verify>Run steps 7–11 on 9.1.1: confirm the runtime label (the 9.0 docs say <b>PowerCLI 13 (PowerShell 7.4)</b>; 9.1 may ship VCF PowerCLI 9 instead), that 512 MB is enough to connect, how a <code>SecureString</code> input arrives in PowerShell (plain string or <code>SecureString</code> object, since <code>Connect-VIServer -Password</code> expects a string), and that the hashtable arrives as <code>Properties</code>.</Verify>
+
+**Call it from JavaScript**
+
+12. The snapshot report and the uptime text can be used from any JavaScript script, like other actions:
+
+```javascript title="Calling the PowerShell actions from JavaScript"
+var chapter4 = System.getModule("com.vcfguide.chapter4");
+
+// vm (VC:VirtualMachine), vcenterUser (string), and vcenterPassword (SecureString)
+// are inputs of the script
+var uptime = chapter4.formatUptime(vm.summary.quickStats.uptimeSeconds || 0);
+System.log(vm.name + " has been up for " + uptime);
+
+var report = chapter4.getSnapshotReport("vc01.vmw.lab", vcenterUser, vcenterPassword, 7);
+if (report.get("count") > 0) {
+    System.warn(report.get("count") + " old snapshots:\n" + report.get("report"));
+}
+```
+
+</Recipe>
+
+<Recipe type="works">
+
+A PowerShell or PowerCLI action runs in its own container, like Python and Node.js. Orchestrator turns the inputs into JSON, starts PowerShell 7.4, loads your script, and calls the function `Handler` with `$context` and `$inputs`. Read inputs as `$inputs.seconds` or `$inputs["seconds"]`. PowerShell function names aren't case-sensitive, so `Handler` and `handler` are the same function.
+
+**What a PowerShell function returns.** In most languages a function returns what follows `return`. In PowerShell, a function returns its whole **output stream**: every value that a line produces and doesn't assign, pipe on, or send to `Out-Null`, plus the value after `return`. One value comes back as itself. Two or more come back as an array. That's why step 5's bare `$span.TotalHours` broke the action, and why `Set-PowerCLIConfiguration` and `Disconnect-VIServer`, which both write objects, end with `| Out-Null`. `Write-Host` writes to a different stream, the information stream, so its lines go to the run's log without touching the result.
+
+**PowerCLI versus PowerShell.** The two runtimes run the same PowerShell. The **PowerCLI** runtime adds modules: in 9.0, Broadcom lists VMware PowerCLI 13, PowerNSX, and PowervRA. With the plain **PowerShell** runtime you start with only what PowerShell itself has, and add modules from the PowerShell Gallery or another NuGet v2 feed through an environment.
+
+**Memory.** The defaults for PowerShell and PowerCLI are 150 MB and 180 seconds. That's enough for `formatUptime`, but PowerCLI is large. Importing it and connecting to vCenter takes more memory than many scripts do afterwards, and a run that goes over the limit is stopped with an out-of-memory error, often with no hint that memory was the cause. Community reports from 8.x needed 256 to 512 MB for a connection and a few changes. Start at 512 MB and lower it once you know what the action uses.
+
+**Sessions don't last.** Every run starts a fresh PowerShell. Nothing survives between runs, including `Connect-VIServer` sessions and `Set-PowerCLIConfiguration` settings with `-Scope Session`. So each run connects, works, and disconnects, as in step 10. The `finally` block makes sure the vCenter session is closed even when the work in `try` fails, so you don't leave idle sessions behind on vCenter.
+
+<ThenNow
+  then="Install a Windows host with PowerShell and PowerCLI, register it with the PowerShell plug-in over WinRM, and send it scripts as text. Keep the modules on that host up to date yourself."
+  now="Choose the <b>PowerShell 7.4</b> or <b>PowerCLI</b> runtime for an action. The script runs in a container on the appliance, with no Windows host, and returns typed values." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**Don't ignore certificates in production.** `-InvalidCertificateAction Ignore` lets the lab work with vCenter's VMCA certificate, which the container doesn't trust. In production, make the container trust your CA or use vCenter's own certificate trust settings. A certificate check that's switched off hides a man-in-the-middle as well as a self-signed certificate.
+
+<Verify>Check whether the PowerCLI runtime on 9.1.1 trusts the certificates in Orchestrator's own trust store (<code>vracli vro keystore list</code>, recipe 1.8), which would make <code>Ignore</code> unnecessary for vCenters already registered with the vCenter plug-in.</Verify>
+
+**Use `Write-Host` for log lines.** `Write-Host` lines appear on the run's log. `Write-Output` and bare values go into the return value instead. `Write-Warning` and `Write-Error` write to their own streams. Recipe 4.6 checks how each one shows up on the log.
+
+**Format tables for the log.** `Format-Table` produces formatting objects, not text, and its output doesn't appear on the log. Send it to the host: `Get-VM | Format-Table Name, PowerState | Out-Host`.
+
+**Newer PowerCLI.** If you need a PowerCLI release newer than the one in the runtime, for example the VCF PowerCLI 9 modules, create an environment on the plain **PowerShell 7.4** runtime and add `VCF.PowerCLI` from the PowerShell Gallery as a dependency. It's a large download with many modules, so the environment build takes a while, and the action needs even more memory.
+
+<Verify>Build a PowerShell 7.4 environment on 9.1.1 with <code>VCF.PowerCLI</code> as a dependency and record the build time, whether <code>Connect-VIServer</code> works from it, and the memory limit it needs.</Verify>
+
+**Return a few typed values, not objects.** A PowerCLI object such as a VM or snapshot can't cross back into Orchestrator. Return a hashtable of strings, numbers, and booleans, as in step 10, or an array of such hashtables. If you need the VM as a `VC:VirtualMachine` object afterwards, return its name or its managed object ID, and look it up in JavaScript.
+
+**Debugging.** PowerShell and PowerCLI scripts can't be debugged from an external IDE. Develop the body of the script in a local PowerShell 7.4 with the same PowerCLI version, then wrap it in `Handler`.
+
+</Recipe>
+
+<Recipe type="see">
+
+- [4.3 Python actions and environments](../03-python-actions/), for how polyglot actions run and how environments get their packages.
+- [4.7 Working with configuration elements in code](../07-configuration-elements/), which keeps the vCenter account out of the action's inputs.
+- [1.9 Registering your first vCenter](../../../chapter-1/recipes/09-register-vcenter/), for the vCenter plug-in, which is the JavaScript way to do the same work.
+- Broadcom TechDocs (VCF 9.0): [Scripting Environments in VCF Operations Orchestrator](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/scripting-environments-in-vcf-operations-orchestrator.html), [Configuring Scripting Environments](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/scripting-environments-in-vcf-operations-orchestrator/configuring-your-scripting-environment.html), and [Runtime Limits for Scripts](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/scripting-environments-in-vcf-operations-orchestrator/runtime-limits-for-scripts.html).
+- Broadcom community: [PowerShell action hitting an out-of-memory condition](https://community.broadcom.com/vmware-cloud-foundation/discussion/vro-81-scriptable-task-with-powershell-error-function-was-stopped-most-likely-because-it-hit-an-oom-out-of-memory-condition) and [vRO PS return bug](https://community.broadcom.com/vmware-cloud-foundation/discussion/vro-ps-return-bug), on memory and on cmdlet output in the return value.
+- Broadcom developer documentation: [VCF PowerCLI](https://developer.broadcom.com/tools/vcf-powercli/latest/). PowerShell Gallery: [VCF.PowerCLI](https://www.powershellgallery.com/packages/VCF.PowerCLI/9.1.0.25380678).
+- Microsoft: [about_Return](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_return) and [about_Output_Streams](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_output_streams), on why a function returns its whole output.
+
+</Recipe>
