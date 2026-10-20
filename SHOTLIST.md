@@ -100,3 +100,20 @@ Lab: VCF 9.1, Orchestrator 9.1.1. Save PNGs at roughly 1400 px wide, crop to the
 | 4.19 | `ch04/fig-4-19.png` | **Assets > Configurations**, folders **VCF Orchestrator Guide > Chapter 4 > vCenters**, element `vc01.vmw.lab`, **Variables** tab: `user` (`string`), `password` (`SecureString`, hidden) | Java client Configurations view, Attributes tab |
 | 4.20 | `ch04/fig-4-20.png` | **Variables** tab of **Report old snapshots**, `maxAgeDays` (`number`) being edited: **Bind to configuration**, `vcfguide-settings`, `snapshotMaxAgeDays` | Java client "Link to configuration attribute" |
 | 4.21 | `ch04/fig-4-21.png` | Run of **Report old snapshots**, **Variables** tab (`vcenterName`, `maxAgeDays` = `7`, `report`), beside `vcfguide-settings` **Variables** tab with `lastSnapshotReport` set to the run's time | — |
+
+## Chapter 5
+
+| Figure | File | What to capture | Replaces (old cookbook) |
+|---|---|---|---|
+| 5.1 | `ch05/fig-5-1.png` | **System Settings > Plug-ins** on `vco01`: full list with name, version, state; **vCenter**, **HTTP-REST**, **SSH**, **SQL** visible; **Add Plug-in** button | Control Center Manage Plug-ins page |
+| 5.2 | `ch05/fig-5-2.png` | **Administration > Inventory**, **vSphere vCenter Server** > `vc01.vmw.lab` down to a VM, VM selected, details pane with `VC:VirtualMachine` and properties | Java client inventory tab |
+| 5.3 | `ch05/fig-5-3.png` | **Add Plug-in** dialog after **Next**: plug-in name, version, vendor, licence agreement check box, **Install** button | Control Center plug-in install page |
+| 5.4 | `ch05/fig-5-4.png` | Run dialog of **Add a REST host**, **Host Properties** tab: `vc01-rest`, `https://vc01.vmw.lab`, timeouts `30`/`60`, certificate acceptance yes, **Redirect strategy** `defaultRedirect` | Add a REST host dialog (Java client) |
+| 5.5 | `ch05/fig-5-5.png` | Run of **Invoke a REST operation** for `vc01-rest` / `Create session`, **Variables** tab: `statusCode` `201`, `contentAsString` with the token (mostly blurred) | — |
+| 5.6 | `ch05/fig-5-6.png` | Run of action `com.vcfguide.chapter5/listVcenterVms` with `vc01-rest`: result array of VM names, power states, IDs; **Logs** tab with the count line | — |
+| 5.7 | `ch05/fig-5-7.png` | Run dialog of **Generate key pair**: **RSA**, **4096**, passphrase filled in (hidden) | — |
+| 5.8 | `ch05/fig-5-8.png` | Run of **Run SSH command** on `syslog01.vmw.lab` with `uptime`, **Variables** tab with the output line and `exitCode` `0` | Run SSH command dialog (Java client) |
+| 5.9 | `ch05/fig-5-9.png` | Failed run of action `com.vcfguide.chapter5/runSshCommand` with `ls /nonexistent`: error with exit code `2` and *No such file or directory*; **Logs** tab with the *Running on* line | — |
+| 5.10 | `ch05/fig-5-10.png` | Run dialog of **Add a database**: `db01-vcfguide`, **PostgreSQL**, `jdbc:postgresql://db01.vmw.lab:5432/vcfguide`, **User credentials** tab visible | Add a database dialog (Java client) |
+| 5.11 | `ch05/fig-5-11.png` | Run of **Record VM facts** with three VMs: **Logs** tab *3 rows written to db01-vcfguide*, **Variables** tab `rowsWritten` `3` | — |
+| 5.12 | `ch05/fig-5-12.png` | Run of action `com.vcfguide.chapter5/latestVmFacts` with `db01-vcfguide`, `5`: three result lines with VM name, power state, vCPUs, memory, time | — |

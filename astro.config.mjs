@@ -70,7 +70,13 @@ export default defineConfig({
             { autogenerate: { directory: 'chapter-4/recipes' } },
           ],
         },
-        { label: '5. Working with plug-ins', slug: 'chapter-5', badge: { text: 'Soon', variant: 'default' } },
+        {
+          label: '5. Working with plug-ins',
+          items: [
+            { label: 'Introduction', slug: 'chapter-5' },
+            { autogenerate: { directory: 'chapter-5/recipes' } },
+          ],
+        },
         { label: '6. Content lifecycle', slug: 'chapter-6', badge: { text: 'Soon', variant: 'default' } },
         { label: '7. Advanced operations', slug: 'chapter-7', badge: { text: 'Soon', variant: 'default' } },
         { label: '8. Orchestrator in VCF', slug: 'chapter-8', badge: { text: 'Soon', variant: 'default' } },

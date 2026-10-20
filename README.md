@@ -12,7 +12,8 @@ A free, open cookbook for **VCF Operations Orchestrator 9.x**, written by Mayank
 | 2. Configuring the appliance | Draft, in review |
 | 3. Visual programming | Draft, in review |
 | 4. Scripting and environments | Draft, in review |
-| 5–8 | Coming soon |
+| 5. Working with plug-ins | Draft in progress (5.1–5.4) |
+| 6–8 | Coming soon |
 
 ## Working on the book
 

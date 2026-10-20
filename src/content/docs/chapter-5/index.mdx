@@ -1,9 +1,50 @@
 ---
-title: "Working with plug-ins"
-description: Chapter 5 of the VCF Orchestrator Guide. Coming soon.
+title: Working with plug-ins
+description: Chapter 5 — talking to the outside world through Orchestrator plug-ins. How plug-ins work, REST APIs, SSH, and SQL databases.
+sidebar:
+  label: Introduction
 ---
+import Opener from '../../../components/Opener.astro';
+import ThenNow from '../../../components/ThenNow.astro';
 import ComingSoon from '../../../components/ComingSoon.astro';
 
-Talking to the outside world through Orchestrator plug-ins.
+<Opener n={5} recipes={[
+  { title: 'How plug-ins work', href: 'recipes/01-how-plug-ins-work/' },
+  { title: 'REST hosts and operations', href: 'recipes/02-rest-hosts/' },
+  { title: 'SSH commands and file copy', href: 'recipes/03-ssh/' },
+  { title: 'SQL databases', href: 'recipes/04-sql-databases/' },
+]} />
 
-<ComingSoon topics={["How plug-ins work","REST hosts and operations","SSH commands and file copy","SQL databases","Sending and reading mail","XML and JSON","AMQP and messaging","Active Directory"]} />
+Chapters 3 and 4 built workflows and the scripts inside them, and almost every example worked on vCenter. That was a plug-in at work. This chapter is about the others: the plug-ins that let a workflow call an API, log in to a server, or keep records in a database, and so reach systems that VMware never wrote a plug-in for.
+
+Recipe 5.1 takes a plug-in apart, to show what it adds to Orchestrator and where to find it: types for scripts, objects in the inventory, and ready-made workflows. It also covers installing a third-party plug-in. The next three recipes each put one of the built-in plug-ins to work. Recipe 5.2 registers a REST API and calls it from an action, with the login and logout most APIs expect. Recipe 5.3 gives Orchestrator its own SSH key, runs commands on a Linux host, and copies files both ways. Recipe 5.4 connects a PostgreSQL database and writes and reads rows without opening the door to SQL injection. The recipes still to come cover mail, XML and JSON, messaging, and Active Directory.
+
+## The examples
+
+The pattern is the same in every recipe: run the plug-in's configuration workflow once to register the system, try it with a built-in workflow, then do the real work in an action.
+
+| Object | Name |
+|---|---|
+| Action module | `com.vcfguide.chapter5` |
+| Workflow folder | **VCF Orchestrator Guide/Chapter 5** |
+| REST host | `vc01-rest`, the REST API of `vc01.vmw.lab` |
+| SSH host | `syslog01.vmw.lab`, user `vcfguide` |
+| Database | `db01-vcfguide`, PostgreSQL database `vcfguide` on `db01.vmw.lab` |
+
+The examples read from the lab and write only to places they own: the `/tmp` folder of `syslog01.vmw.lab`, and one table in the `vcfguide` database. The REST examples use the read-only vCenter account `svc-vcfguide-ro@vsphere.local` from Chapter 4. JavaScript samples are plain ES5.1.
+
+## What changed since vRO 7
+
+The plug-ins in this chapter have been part of Orchestrator for more than ten years, and their scripting objects have barely changed. Scripts written for vRO 7 against `RESTHost`, `SSHSession`, or `SQLDatabase` mostly still run. What changed is how you manage plug-ins and where their files live.
+
+<ThenNow
+  then="Install and configure plug-ins in Control Center on port 8283, and restart the Orchestrator service by hand."
+  now="Install plug-ins in the Orchestrator Client under <b>System Settings</b> > <b>Plug-ins</b>; the server restarts by itself. Connections to REST hosts, SSH hosts, and databases are made with configuration workflows, as before." />
+
+<ThenNow
+  then="Scripts read and write files anywhere the <code>js-io-rights.conf</code> rules allowed on the appliance's own file system."
+  now="The server runs in a Kubernetes container. Scripts and SCP copies see the container's file system, where <code>/var/run/vco</code> is the writable place." />
+
+## Still to come in this chapter
+
+<ComingSoon topics={["Sending and reading mail","XML and JSON","AMQP and messaging","Active Directory"]} />
