@@ -1,0 +1,189 @@
+---
+title: Logging from scripts
+description: Recipe 4.6 — log at the right level, choose between run logs and persistent server logs, write one log format with a small action, and log from Python, Node.js, and PowerShell.
+sidebar:
+  label: 4.6 Logging from scripts
+  order: 6
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+The log is the only witness to most workflow runs. Nobody watches a scheduled run at three in the morning, and nobody remembers next month why a run skipped a VM. What the scripts wrote down is all there is. Good logging costs a few lines per script, and saves hours the first time something goes wrong.
+
+Orchestrator gives JavaScript two families of log calls: `System.*`, which writes to the run's log, and `Server.*`, which writes a persistent entry to the database. In this recipe you build a small `writeLog` action that writes every line in the same format and at the right level, use it from a workflow, find the lines afterwards, and then see how the other runtimes log.
+
+<Recipe type="ready">
+
+- The action module `com.vcfguide.chapter4` and the workflow folder **VCF Orchestrator Guide/Chapter 4**.
+- The vCenter `vc01.vmw.lab` with a few VMs, some of them powered off. The workflow only reads.
+- For step 11, root access to the appliance shell (recipe 2.1).
+
+</Recipe>
+
+<Recipe type="how">
+
+**One action for every log line**
+
+1. In **Library** > **Actions**, create the action `writeLog` in `com.vcfguide.chapter4`.
+2. Add three inputs of type `string`: `level`, `source`, and `message`. Set the **Return type** to `void`, enter this script, and click **Save**:
+
+```javascript title="com.vcfguide.chapter4/writeLog"
+// Writes one line as "[source] message" at the given level:
+// debug, info, warn, or error. Warnings and errors also go to the
+// persistent server log, so they outlive the run's own log.
+var text = "[" + (source || "unknown") + "] " + message;
+
+switch (String(level || "info").toLowerCase()) {
+    case "debug":
+        System.debug(text);
+        break;
+    case "warn":
+        System.warn(text);
+        Server.warn(text, message);
+        break;
+    case "error":
+        System.error(text);
+        Server.error(text, message);
+        break;
+    default:
+        System.log(text);
+}
+```
+
+**Use it from a workflow**
+
+3. Create the workflow **Log at every level** in the folder **VCF Orchestrator Guide/Chapter 4**. It needs no inputs.
+4. Add one scriptable task, **Check power states**, with this script:
+
+```javascript title="Log at every level / Check power states"
+var chapter4 = System.getModule("com.vcfguide.chapter4");
+// The workflow's name and this run's ID tie every line to the run
+var source = workflow.currentWorkflow.name + " " + workflow.id;
+
+chapter4.writeLog("debug", source, "Reading all VMs from the vCenter plug-in");
+var vms = VcPlugin.getAllVirtualMachines();
+chapter4.writeLog("info", source, "Found " + vms.length + " VMs");
+
+var notRunning = 0;
+for (var i = 0; i < vms.length; i++) {
+    var state = vms[i].runtime.powerState.value;
+    chapter4.writeLog("debug", source, vms[i].name + " is " + state);
+    if (state !== "poweredOn") {
+        notRunning++;
+    }
+}
+if (notRunning > 0) {
+    chapter4.writeLog("warn", source, notRunning + " of " + vms.length + " VMs are not powered on");
+}
+
+try {
+    throw new Error("Simulated failure, to show the error level");
+} catch (e) {
+    chapter4.writeLog("error", source, "Caught: " + e.message);
+}
+```
+
+5. Save the workflow and run it. The run completes: the error is caught, so it's only logged.
+
+**Read the run's log**
+
+6. Open the run and its **Logs** tab. Each line shows its time, its level, and the text with the `[Log at every level …]` prefix. Use the level filter to show only warnings and errors: that's the view you want on a run with hundreds of lines.
+
+<Figure n="4.16" caption="A run's log with lines at every level, filtered to warnings and errors."
+  capture="Run of <b>Log at every level</b>, <b>Logs</b> tab: info line <i>Found N VMs</i>, the warning <i>… VMs are not powered on</i>, and the error <i>Caught: Simulated failure …</i>, all with the <code>[Log at every level &lt;run ID&gt;]</code> prefix; level filter open." />
+
+7. Look for the debug lines, one per VM. Whether they appear depends on the scripting log level, which is `INFO` by default. Raise it to `DEBUG` (step 10), run the workflow again, and they appear.
+
+<Verify>On 9.1.1, check the <b>Logs</b> tab: its columns, the name and choices of the level filter, and whether <code>System.debug</code> lines are hidden at the default scripting log level or only filtered out of the view. Also confirm that <code>workflow.currentWorkflow.name</code> and <code>workflow.id</code> give the workflow's name and the run's ID in a scriptable task.</Verify>
+
+**Find the persistent entries**
+
+8. The warning and the error were also written with `Server.warn` and `Server.error`. Those entries are stored in Orchestrator's database with the run. Look for them on the run's **Events** tab, and on the workflow's own events or audit view.
+
+<Figure n="4.17" caption="Persistent log entries written with Server.warn and Server.error."
+  capture="The view on 9.1.1 that lists <code>Server.*</code> entries for a run of <b>Log at every level</b> (a run <b>Events</b> tab, or the audit or events view): the warning and the error, with short and long text." />
+
+<Verify>Find where 9.1.1 shows <code>Server.log</code>, <code>Server.warn</code>, and <code>Server.error</code> entries: a tab on the run, the workflow's audit view, or only the REST API (<code>GET /vco/api/workflows/&#123;id&#125;/executions/&#123;executionId&#125;/syslogs</code> and <code>…/logs</code> in 8.x). Recipe 3.2 has the same open question.</Verify>
+
+**Log from the other runtimes**
+
+9. Python, Node.js, and PowerShell actions don't have `System.log`. They write to their own output, and Orchestrator copies it to the run's log:
+
+| Runtime | Information | Warning or error |
+|---|---|---|
+| Python | `print("…")` | `print("…", file=sys.stderr)` |
+| Node.js | `console.log("…")` | `console.warn("…")`, `console.error("…")` |
+| PowerShell, PowerCLI | `Write-Host "…"` | `Write-Warning "…"`, `Write-Error "…"` |
+
+Keep the `[source] message` format there too, so that one search finds the lines of a run whatever runtime wrote them. A Python action can pass `context["executionId"]` as its source, for example.
+
+<Verify>For each runtime on 9.1.1, record how lines written to standard error, <code>console.warn</code>, <code>console.error</code>, <code>Write-Warning</code>, and <code>Write-Error</code> appear on the run's log: at warning or error level, or as ordinary lines. Check also whether <code>Write-Error</code> fails the PowerShell action.</Verify>
+
+**Change the log levels**
+
+10. As an administrator, open **System Settings** > **Log Configuration**. Set the **Scripting log level** to `DEBUG` while you investigate, and back to `INFO` when you're done. The same setting is available from the appliance shell with `vracli vro logs configure` (recipe 1.8).
+
+<Figure n="4.18" caption="The server and scripting log levels."
+  capture="<b>System Settings</b> > <b>Log Configuration</b> on 9.1.1: server log level and scripting log level drop-downs, both <code>INFO</code>, and any log rotation settings on the page." />
+
+<Verify>Confirm that 9.1.1 has <b>System Settings</b> > <b>Log Configuration</b> (Broadcom documents it for 8.18), the labels on the page, and whether it offers log rotation settings as well as levels.</Verify>
+
+**Follow the scripting log on the appliance**
+
+11. Every run's script lines also go to log files on the appliance, which is handy for following several runs at once. As root on `vco01.vmw.lab`:
+
+```bash title="root@vco01"
+ls -l /services-logs/prelude/vco-app/file-logs/
+tail -f /services-logs/prelude/vco-app/file-logs/vco-server-app_scripting.log | grep "Log at every level"
+```
+
+<Verify>List <code>/services-logs/prelude/vco-app/file-logs/</code> on 9.1.1 and confirm the file name of the scripting log, and that it holds the <code>System.*</code> lines of every run.</Verify>
+
+</Recipe>
+
+<Recipe type="works">
+
+**Two kinds of log.** Broadcom's documentation divides script logging into two types:
+
+- **`System.log`, `System.debug`, `System.warn`, and `System.error`** write a *non-persistent* log line. The server sends it to every client that's watching the run, and it's shown on the run's **Logs** tab and written to the scripting log file. It isn't a database record. The documentation warns that this information can be lost when the server restarts, and older runs lose their lines when log files rotate.
+- **`Server.log`, `Server.debug`, `Server.warn`, and `Server.error`** write a *persistent* entry to Orchestrator's database. They take two texts, a short one and a long one, and the entry stays as long as the run it belongs to.
+
+That's why `writeLog` sends warnings and errors to both. The `System.*` line keeps the run's log complete and in order, and the `Server.*` entry is still there after the log files have moved on. Don't send every line to `Server.*`: each one is a database write, and a busy workflow can write thousands.
+
+**Levels.** Each line has a level, from `DEBUG` up through `INFO`, `WARN`, and `ERROR`. Two settings decide what's kept: the **server log level**, for the server's own messages, and the **scripting log level**, for script lines. Both are `INFO` by default. Lines below the level aren't written, so `System.debug` costs almost nothing in production and gives you detail the moment you lower the level. Broadcom warns against leaving `DEBUG` or `ALL` on in production, because the volume slows the server down.
+
+**Retention.** Run logs are kept on disk and rotated. A KB article for 8.x describes old runs showing an empty log because one very busy workflow filled the rotation buffer, which pushed everyone else's lines out early. The cure is the same as for any log: log less from the noisy workflow, or keep more on disk.
+
+**One format.** A prefix such as `[Log at every level <run ID>]` turns a log into something you can search. When the lines leave Orchestrator, through syslog (recipe 2.5) or the appliance's log files, the run's ID is the only thing that links a line back to the run and the workflow.
+
+<ThenNow
+  then="Read script logs in the Java client's <b>Logs</b> tab, set the log level in Control Center, and find <code>scripts-logs.log</code> in the server's log folder."
+  now="Read them on the run's <b>Logs</b> tab in the browser client, set the levels under <b>System Settings</b> > <b>Log Configuration</b> or with <code>vracli vro logs configure</code>, and find the files under <code>/services-logs/prelude/vco-app/file-logs</code> on the appliance." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**What to log.** One line when a script starts, with the inputs that matter. One line for each decision, saying what was chosen and why: "skipping vm-db01: powered off". One line with the result. Put details for each item of a loop at `debug`, so they're there when you need them and silent when you don't.
+
+**What never to log.** Passwords, tokens, and other secrets. A `SecureString` input is a plain string inside a script, and `System.log("Connecting as " + user + " / " + password)` writes it to the log, to the scripting log file, and to every syslog server that log is forwarded to. Log the user name, never the password. The same goes for a whole REST response or request, which may carry an authorization header.
+
+**Log objects readably.** `System.log(vm)` prints the object's type and ID, not its contents. For a plain JavaScript object, use `JSON.stringify(obj)`. For a `Properties` object, which `JSON.stringify` can't see into, log its keys and values in a loop over `props.keys`.
+
+**Errors that are thrown.** You don't need to log an error you then throw. Orchestrator logs the failure and its message with the run, and the exception path (recipe 3.4) gets the message too. Log what you know at that point that the message doesn't say, such as the item the script was working on.
+
+**Log levels for one workflow.** The levels are server-wide, so lowering them for one workflow lowers them for all. An alternative is an input or a configuration element value such as `verbose` (recipe 4.7) that makes `writeLog` write its debug lines at `info` while you investigate.
+
+</Recipe>
+
+<Recipe type="see">
+
+- [3.2 Scriptable tasks and the schema canvas](../../../chapter-3/recipes/02-scriptable-tasks/) and [3.5 Resuming and debugging failed runs](../../../chapter-3/recipes/05-resume-and-debug/), for logging while you build a workflow.
+- [1.8 Configuring Orchestrator from the command line](../../../chapter-1/recipes/08-command-line/), for `vracli vro logs`.
+- [2.5 Sending logs to a syslog server](../../../chapter-2/recipes/05-syslog/), for getting log lines off the appliance.
+- VMware Docs (Aria Automation Orchestrator 8.16): [Orchestrator Logs](https://docs.vmware.com/en/VMware-Aria-Automation/8.16/Installing-Configuring-Automation-Orchestrator/GUID-4E29EBE7-181D-4B17-982E-7599F9164F1B.html), for persistent and non-persistent logs, and (8.18) [Log configuration](https://docs.vmware.com/en/VMware-Aria-Automation/8.18/Installing-Configuring-Automation-Orchestrator/GUID-AA543C3A-7524-4DAB-B803-604F2A531DE8.html).
+- Broadcom KB: [KB 437033](https://knowledge.broadcom.com/external/article/437033/aria-automation-orchestrator-workflow-lo.html), workflow logs missing for older runs, and [KB 437037](https://knowledge.broadcom.com/external/article/437037/aria-automation-orchestrator-log-configu.html), log configuration and the `file-logs` folder.
+
+</Recipe>
