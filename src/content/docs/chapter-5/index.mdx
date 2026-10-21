@@ -1,23 +1,28 @@
 ---
 title: Working with plug-ins
-description: Chapter 5 — talking to the outside world through Orchestrator plug-ins. How plug-ins work, REST APIs, SSH, and SQL databases.
+description: Chapter 5 — talking to the outside world through Orchestrator plug-ins. How plug-ins work, REST APIs, SSH, SQL databases, mail, XML and JSON, AMQP messaging, and Active Directory.
 sidebar:
   label: Introduction
 ---
 import Opener from '../../../components/Opener.astro';
 import ThenNow from '../../../components/ThenNow.astro';
-import ComingSoon from '../../../components/ComingSoon.astro';
 
 <Opener n={5} recipes={[
   { title: 'How plug-ins work', href: 'recipes/01-how-plug-ins-work/' },
   { title: 'REST hosts and operations', href: 'recipes/02-rest-hosts/' },
   { title: 'SSH commands and file copy', href: 'recipes/03-ssh/' },
   { title: 'SQL databases', href: 'recipes/04-sql-databases/' },
+  { title: 'Sending and reading mail', href: 'recipes/05-mail/' },
+  { title: 'XML and JSON', href: 'recipes/06-xml-json/' },
+  { title: 'AMQP and messaging', href: 'recipes/07-amqp/' },
+  { title: 'Active Directory', href: 'recipes/08-active-directory/' },
 ]} />
 
 Chapters 3 and 4 built workflows and the scripts inside them, and almost every example worked on vCenter. That was a plug-in at work. This chapter is about the others: the plug-ins that let a workflow call an API, log in to a server, or keep records in a database, and so reach systems that VMware never wrote a plug-in for.
 
-Recipe 5.1 takes a plug-in apart, to show what it adds to Orchestrator and where to find it: types for scripts, objects in the inventory, and ready-made workflows. It also covers installing a third-party plug-in. The next three recipes each put one of the built-in plug-ins to work. Recipe 5.2 registers a REST API and calls it from an action, with the login and logout most APIs expect. Recipe 5.3 gives Orchestrator its own SSH key, runs commands on a Linux host, and copies files both ways. Recipe 5.4 connects a PostgreSQL database and writes and reads rows without opening the door to SQL injection. The recipes still to come cover mail, XML and JSON, messaging, and Active Directory.
+Recipe 5.1 takes a plug-in apart, to show what it adds to Orchestrator and where to find it: types for scripts, objects in the inventory, and ready-made workflows. It also covers installing a third-party plug-in. The next three recipes each put one of the built-in plug-ins to work. Recipe 5.2 registers a REST API and calls it from an action, with the login and logout most APIs expect. Recipe 5.3 gives Orchestrator its own SSH key, runs commands on a Linux host, and copies files both ways. Recipe 5.4 connects a PostgreSQL database and writes and reads rows without opening the door to SQL injection.
+
+The second half of the chapter is about telling people and systems what happened. Recipe 5.5 sets up mail and sends an HTML report. Recipe 5.6 is about the two text formats everything else uses, JSON and XML, and the conversions between them and Orchestrator's own objects. Recipe 5.7 publishes those JSON documents to a RabbitMQ queue and starts a workflow when a message arrives. Recipe 5.8 ends the chapter with the plug-in many teams reach for first: Active Directory users and groups.
 
 ## The examples
 
@@ -30,8 +35,11 @@ The pattern is the same in every recipe: run the plug-in's configuration workflo
 | REST host | `vc01-rest`, the REST API of `vc01.vmw.lab` |
 | SSH host | `syslog01.vmw.lab`, user `vcfguide` |
 | Database | `db01-vcfguide`, PostgreSQL database `vcfguide` on `db01.vmw.lab` |
+| Mail server | `mail01.vmw.lab`, port `587` with STARTTLS, sender `vcfguide@vmw.lab` |
+| AMQP broker | `mq01`, RabbitMQ on `mq01.vmw.lab`; exchange `vcfguide.events`, queue `vcfguide.vm-facts` |
+| Active Directory | `dc01.vmw.lab` over LDAPS, domain `vmw.lab`, OU **VCF Guide**, group `vcfguide-users` |
 
-The examples read from the lab and write only to places they own: the `/tmp` folder of `syslog01.vmw.lab`, and one table in the `vcfguide` database. The REST examples use the read-only vCenter account `svc-vcfguide-ro@vsphere.local` from Chapter 4. JavaScript samples are plain ES5.1.
+The examples read from the lab and write only to places they own: the `/tmp` folder of `syslog01.vmw.lab`, one table in the `vcfguide` database, one exchange and queue on the broker, and one OU in Active Directory. The REST examples use the read-only vCenter account `svc-vcfguide-ro@vsphere.local` from Chapter 4. JavaScript samples are plain ES5.1.
 
 ## What changed since vRO 7
 
@@ -44,7 +52,3 @@ The plug-ins in this chapter have been part of Orchestrator for more than ten ye
 <ThenNow
   then="Scripts read and write files anywhere the <code>js-io-rights.conf</code> rules allowed on the appliance's own file system."
   now="The server runs in a Kubernetes container. Scripts and SCP copies see the container's file system, where <code>/var/run/vco</code> is the writable place." />
-
-## Still to come in this chapter
-
-<ComingSoon topics={["Sending and reading mail","XML and JSON","AMQP and messaging","Active Directory"]} />

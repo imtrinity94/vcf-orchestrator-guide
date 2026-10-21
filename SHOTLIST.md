@@ -117,3 +117,13 @@ Lab: VCF 9.1, Orchestrator 9.1.1. Save PNGs at roughly 1400 px wide, crop to the
 | 5.10 | `ch05/fig-5-10.png` | Run dialog of **Add a database**: `db01-vcfguide`, **PostgreSQL**, `jdbc:postgresql://db01.vmw.lab:5432/vcfguide`, **User credentials** tab visible | Add a database dialog (Java client) |
 | 5.11 | `ch05/fig-5-11.png` | Run of **Record VM facts** with three VMs: **Logs** tab *3 rows written to db01-vcfguide*, **Variables** tab `rowsWritten` `3` | — |
 | 5.12 | `ch05/fig-5-12.png` | Run of action `com.vcfguide.chapter5/latestVmFacts` with `db01-vcfguide`, `5`: three result lines with VM name, power state, vCPUs, memory, time | — |
+| 5.13 | `ch05/fig-5-13.png` | Run dialog of **Configure mail**, **Host** tab: `mail01.vmw.lab`, port `587`; **Credentials** and **Email Content** tabs visible | Configuration interface Mail tab |
+| 5.14 | `ch05/fig-5-14.png` | Run of **Send notification** to `mayank@vmw.lab`, completed; **Variables** tab with empty SMTP inputs and **Use STARTTLS** = **Yes**; optionally the received message | Send notification dialog (Java client) |
+| 5.15 | `ch05/fig-5-15.png` | Received *VM facts report* HTML message with the bulleted list; **Logs** tab of the `mailVmFactsReport` run with the *Mail … sent to* line | — |
+| 5.16 | `ch05/fig-5-16.png` | Run of action `com.vcfguide.chapter5/vmFactsToJson` with two VMs: indented JSON result with `vcenter`, `generated`, `vms` array | — |
+| 5.17 | `ch05/fig-5-17.png` | Runs of `vmFactsToXml` (XML result with two `vm` elements) and `readVmFactsXml` (two result lines), side by side | E4X scripting example |
+| 5.18 | `ch05/fig-5-18.png` | Run dialog of **Add a broker**, **AMQP connection properties** tab: `mq01.vmw.lab`, `5672`, virtual host `/`, **Use SSL** off, user `vcfguide`, password hidden | Add a broker dialog (Java client) |
+| 5.19 | `ch05/fig-5-19.png` | Run of **Receive a text message** on `mq01`, queue `vcfguide.vm-facts`, **Variables** tab with output `hello from vco01` | — |
+| 5.20 | `ch05/fig-5-20.png` | Run of `receiveVmFacts` with `mq01`: result array of two `Properties`; beside it, RabbitMQ management UI for `vcfguide.vm-facts` with one message in and one out | — |
+| 5.21 | `ch05/fig-5-21.png` | Run dialog of **Add an Active Directory server**: `dc01.vmw.lab`, `636`, `DC=vmw,DC=lab`, **Use SSL** = **Yes**, `@vmw.lab`; shared-session and **Alternative hosts** tabs visible | Add an Active Directory server (Java client) |
+| 5.22 | `ch05/fig-5-22.png` | Run of **Create lab user** for `jdoe`, **Logs** tab with *Created jdoe (Jane Doe) in VCF Guide and added it to vcfguide-users*; **Variables** tab with `user` set; password hidden | — |
