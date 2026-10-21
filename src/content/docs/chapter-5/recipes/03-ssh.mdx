@@ -1,0 +1,176 @@
+---
+title: SSH commands and file copy
+description: Recipe 5.3 — give Orchestrator a key pair, register it on a Linux host, run commands with the SSH plug-in, check the exit code from a script, and copy files both ways.
+sidebar:
+  label: 5.3 SSH commands and file copy
+  order: 3
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+Not everything has an API. Appliances, Linux servers, network devices, and old tools are often easiest to reach with a shell command. The SSH plug-in lets a workflow log in over SSH, run a command, read what it printed and its exit code, and copy files to and from the host.
+
+In this recipe you give Orchestrator its own key pair so that it can log in without a password, register the public key on the lab's Linux host `syslog01.vmw.lab`, run a command with the built-in workflow, and then write an action that runs commands and fails properly when they fail. Last, you copy a file to the host and another one back.
+
+<Recipe type="ready">
+
+- A Linux host Orchestrator can reach on TCP 22. This recipe uses the lab's syslog server `syslog01.vmw.lab` from recipe 2.5, and only reads from it and writes to `/tmp`.
+- On that host, an ordinary account `vcfguide` with a password, used only to register the key. It needs no `sudo` rights.
+- A login to the Orchestrator Client with administrator rights, and the action module `com.vcfguide.chapter5` from recipe 5.1.
+
+</Recipe>
+
+<Recipe type="how">
+
+**Give Orchestrator a key pair**
+
+1. Go to **Library** > **Workflows**, search with the tag `ssh`, and run **Generate key pair**.
+2. Choose the key type **RSA** and the size **4096**, enter a passphrase, and click **Run**. Keep the passphrase: every key-based login needs it.
+3. Run the workflow that registers Orchestrator's public key on a host (search the tag `ssh` for *public key*). Enter the host `syslog01.vmw.lab`, the user `vcfguide`, and its password, and click **Run**. It copies the public key into `~/.ssh/authorized_keys` of `vcfguide` on the host.
+
+<Figure n="5.7" caption="Generating Orchestrator's key pair."
+  capture="Run dialog of <b>Generate key pair</b>: key type <b>RSA</b>, size <b>4096</b>, passphrase field filled in (hidden)." />
+
+<Verify>On 9.1.1, record the exact names of the key pair workflows (<b>Generate key pair</b>, and the one that registers the public key, called <b>Register vCO public key on host</b> in older releases), the key types and sizes offered, and the path where the private key is stored on the server. Check what the register workflow does if <code>~/.ssh</code> doesn't exist on the host.</Verify>
+
+**Register the host in the inventory**
+
+4. Search with the tags `ssh` and `configuration`, and run **Add SSH Host**. On the **General Information** tab, enter the host name `syslog01.vmw.lab` and leave the port at `22`.
+5. On the **Authentication** tab, enter the user name `vcfguide`, choose key authentication instead of a password, and enter the path to the private key and its passphrase. Click **Run**.
+6. Go to **Administration** > **Inventory** > **SSH**. Expand `syslog01.vmw.lab` to browse its file system as `vcfguide`.
+
+<Verify>Confirm the tab and field labels of <b>Add SSH Host</b> on 9.1.1 (the 8.17 workflow has <b>General Information</b> and <b>Authentication</b> tabs and a root-folder field), the default private key path it fills in, and whether the host's SSH host key is checked or stored anywhere.</Verify>
+
+**Run a command without code**
+
+7. Search with the tag `ssh` and run **Run SSH command**. Enter the host name `syslog01.vmw.lab` and the command `uptime`.
+8. On the **Authentication** tab, enter the user `vcfguide`, leave key authentication selected, and enter the passphrase. Click **Run**.
+9. On the run's **Variables** tab, the output holds a line such as `up 12 days, 3 users, load average: 0.02`, and the exit code is `0`.
+
+<Figure n="5.8" caption="A command run on a Linux host, with its output and exit code."
+  capture="Run of <b>Run SSH command</b> against <code>syslog01.vmw.lab</code> with <code>uptime</code>, <b>Variables</b> tab with the output line and <code>exitCode</code> = <code>0</code>." />
+
+**Run commands from an action**
+
+10. Create the action `runSshCommand` in `com.vcfguide.chapter5`. Give it the inputs `hostName`, `userName`, `keyPath`, and `command` of type `string`, and `passphrase` of type `SecureString`, and the **Return type** `Properties`:
+
+```javascript title="com.vcfguide.chapter5/runSshCommand"
+// Runs one command on a host as userName, with Orchestrator's private key.
+// Returns output, error, and exitCode; throws if the command fails.
+var session = new SSHSession(hostName, userName);
+var result = new Properties();
+try {
+    session.connectWithIdentity(keyPath, passphrase);
+    System.log("Running on " + hostName + ": " + command);
+    session.executeCommand(command, true);   // true: wait until it finishes
+
+    result.put("output", session.output);
+    result.put("error", session.error);
+    result.put("exitCode", session.exitCode);
+} finally {
+    session.disconnect();
+}
+
+if (result.get("exitCode") !== 0) {
+    throw "runSshCommand: '" + command + "' on " + hostName + " exited with "
+        + result.get("exitCode") + ": " + result.get("error");
+}
+return result;
+```
+
+11. Run the action with `syslog01.vmw.lab`, `vcfguide`, the key path from step 5, the passphrase, and the command `df -h /var/log`. The result's `output` is the `df` table and `exitCode` is `0`.
+12. Run it again with the command `ls /nonexistent`. The action fails, and the error names the command, the exit code `2`, and the message from `ls`.
+
+<Figure n="5.9" caption="The action reporting a failed command."
+  capture="Failed run of action <code>com.vcfguide.chapter5/runSshCommand</code> with <code>ls /nonexistent</code>: the error message with exit code <code>2</code> and the <code>No such file or directory</code> text, and the <b>Logs</b> tab with the <i>Running on</i> line." />
+
+<Verify>Check on 9.1.1 that <code>SSHSession.exitCode</code> arrives in JavaScript as a number (so that <code>!== 0</code> works), that <code>output</code> and <code>error</code> hold the whole of standard output and standard error, and that a <code>SecureString</code> input can be passed straight to <code>connectWithIdentity</code>.</Verify>
+
+**Copy files both ways**
+
+13. Create the action `copyFilesWithHost` with the same `hostName`, `userName`, `keyPath`, and `passphrase` inputs, and the **Return type** `string`:
+
+```javascript title="com.vcfguide.chapter5/copyFilesWithHost"
+// Copies a small file to the host, then copies /etc/os-release back
+// and returns its first line. Local files must be under /var/run/vco.
+var localOut = "/var/run/vco/vcfguide-hello.txt";
+var localIn = "/var/run/vco/vcfguide-os-release.txt";
+
+var writer = new FileWriter(localOut);
+writer.open();
+writer.writeLine("Hello from Orchestrator at " + new Date());
+writer.close();
+
+var session = new SSHSession(hostName, userName);
+try {
+    session.connectWithIdentity(keyPath, passphrase);
+    if (session.putFile(localOut, "/tmp/vcfguide-hello.txt") !== 0) {
+        throw "copyFilesWithHost: copy to " + hostName + " failed";
+    }
+    if (session.getFile("/etc/os-release", localIn) !== 0) {
+        throw "copyFilesWithHost: copy from " + hostName + " failed";
+    }
+} finally {
+    session.disconnect();
+}
+
+var reader = new FileReader(localIn);
+reader.open();
+var firstLine = reader.readLine();
+reader.close();
+System.log("Copied both ways with " + hostName + ": " + firstLine);
+return firstLine;
+```
+
+14. Run it. The result is the first line of the host's `/etc/os-release`, such as `NAME="Ubuntu"`. On the host, `cat /tmp/vcfguide-hello.txt` shows the line the action wrote.
+
+<Verify>Run step 13 on 9.1.1 and confirm that <code>/var/run/vco</code> is writable by <code>FileWriter</code> and by <code>getFile</code> without changes to <code>js-io-rights.conf</code> (recipe 2.8), the argument order of <code>getFile</code> (remote path, then local path), and that both methods return <code>0</code> on success.</Verify>
+
+</Recipe>
+
+<Recipe type="works">
+
+The SSH plug-in is an SSH client inside the Orchestrator server, built on the Java library JSch. Each `SSHSession` is one SSH connection: `connectWithIdentity` logs in with a private key, `connectWithPassword` with a password, and `executeCommand` opens a channel on that connection, runs the command in the user's shell, and collects its standard output, standard error, and exit code. With `true` as the second argument, the script waits until the command ends. One session can run several commands, one after another, which is cheaper than logging in for each.
+
+**The exit code is the only reliable signal.** The plug-in doesn't decide whether a command worked. A command that fails still gives you an output, an error text, and an exit code, and the run carries on happily unless the script checks. The action turns a non-zero exit code into an exception, so the workflow's error handling (recipe 3.4) takes over.
+
+**Orchestrator's key pair.** **Generate key pair** creates one key pair for the whole server and stores the private key on the server, protected by the passphrase. The public key goes onto each host, so a workflow can log in without a password stored anywhere in Orchestrator. Generating a new pair replaces the old one, and every host that had the old public key stops accepting logins until you register the new one. Any workflow author on the server can use the key, so the account it logs in to should have only the rights the workflows need, as `vcfguide` does here.
+
+**Files go through the server.** `putFile` and `getFile` copy between the host and the Orchestrator server's own file system, using SFTP over the session. The server runs in a container where scripts may only write to a few places. `/var/run/vco` is writable by default, which is why both files live there. Other paths need a rule in `js-io-rights.conf` (recipe 2.8). On a cluster, each node has its own `/var/run/vco`, so copy a file in and use it in the same script, not in a later workflow element that may run on another node.
+
+<ThenNow
+  then="Run the SSH workflows from the Java client, and open up file access for SCP by editing <code>js-io-rights.conf</code> directly on the appliance's file system, where the server also ran."
+  now="Keep the key that <b>Generate key pair</b> creates on the server, copy files through <code>/var/run/vco</code> inside the server's container, and change file access in <code>/data/vco/usr/lib/vco/app-server/conf/js-io-rights.conf</code> only when you must." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**Commands that need `sudo`.** `executeCommand` has no terminal, so `sudo` can't ask for a password. If a workflow must run something as root, give the account a narrow `sudoers` rule with `NOPASSWD` for exactly the commands it needs, such as `/usr/bin/systemctl restart rsyslog`, and run `sudo -n …` so that a missing rule fails at once instead of waiting.
+
+**Quoting.** The command runs in the remote user's shell, so anything you build from workflow inputs is shell code. Never add free text from a form to a command. Validate inputs against a strict pattern first, as recipe 3.6 does for form fields, or pass values in a file you copy over.
+
+**Long-running commands.** A command that takes minutes holds the session and the workflow. Start it in the background on the host, such as `nohup /opt/scripts/backup.sh > /tmp/backup.log 2>&1 &`, and poll for the result with a short command and a waiting timer (recipe 3.7).
+
+**Hosts that reject the key.** Older SSH plug-ins signed key logins with SHA-1, which RHEL 9 and similar systems refuse by default; the login failed with *Too many authentication failures*. Broadcom fixed this in SSH plug-in 8.0.1. If key logins fail on 9.x, check the network first: with FIPS mode on, a blocked port can show up as *Your private key is encrypted with a non-compliant cipher* instead of a time-out (KB 454438).
+
+<Verify>Check which SSH plug-in version 9.1.1 ships, and whether key login to a RHEL 9 host with its default crypto policy works with the key from step 2.</Verify>
+
+**Password logins.** For a quick test, `connectWithPassword(password)` works, with the password read from a configuration element (recipe 4.7). Keys are better: there's no password to rotate in Orchestrator, and you can remove one host's access by deleting one line in its `authorized_keys`.
+
+**Your own key.** The **Generate key pair** page in Broadcom's documentation explains how to use a key you created elsewhere: it must be in PEM format, which `ssh-keygen -m pem` creates.
+
+</Recipe>
+
+<Recipe type="see">
+
+- [2.8 Setting system properties that matter](../../../chapter-2/recipes/08-system-properties/), for `js-io-rights.conf` and the server's file system.
+- [3.4 Handling errors and exceptions](../../../chapter-3/recipes/04-handling-errors/), for what happens after the action throws.
+- [4.7 Working with configuration elements in code](../../../chapter-4/recipes/07-configuration-elements/), for keeping the passphrase out of workflows.
+- Broadcom TechDocs (VCF 9.0): [Configuring the SSH Plug-In](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/vcf-ochestrator-plugins-overview/using-the-ssh-plug-in/ssh-configuration-workflows.html) and [Running the SSH Plug-In Sample Workflows](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/vcf-ochestrator-plugins-overview/using-the-ssh-plug-in/running-the-ssh-plug-in-sample-workflows.html). VCF 9.1: [Generate a Key Pair in VCF Operations Orchestrator](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-1/configuration-of-vmware-cloud-foundation-operations-orchestrator/vcf-ochestrator-plugins-overview/using-the-ssh-plug-in/running-the-ssh-plug-in-sample-workflows/generate-key-pairs.html).
+- Broadcom TechDocs (Aria Automation 8.17 and 8.18): [Add an SSH host](https://techdocs.broadcom.com/us/en/vmware-cis/aria/aria-automation/8-17/vro-using-plug-ins-8-17/using-the-ssh-plug-in/ssh-configuration-workflows/add-an-ssh-host-new.html) and [Run an SSH command](https://techdocs.broadcom.com/us/en/vmware-cis/aria/aria-automation/8-18/vro-using-plug-ins-8-18/using-the-ssh-plug-in/running-the-ssh-plug-in-sample-workflows/run-an-ssh-command.html).
+- Broadcom KB [454438](https://knowledge.broadcom.com/external/article/454438/ssh-plugin-workflows-fail-with-your-priv.html) (9.x, FIPS mode), [379994](https://knowledge.broadcom.com/external/article/379994/ssh-key-authentication-to-linux-machine.html) and [382628](https://knowledge.broadcom.com/external/article/382628) (key logins to RHEL 9).
+
+</Recipe>

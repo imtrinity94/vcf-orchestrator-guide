@@ -1,0 +1,163 @@
+---
+title: Active Directory
+description: Recipe 5.8 — register a domain controller over LDAPS with the Active Directory plug-in, create an OU and a group with the built-in workflows, create users from a workflow, find them reliably, and work with several domains.
+sidebar:
+  label: 5.8 Active Directory
+  order: 8
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+Sooner or later a workflow has to touch Active Directory: create an account for a new starter, add a service account to a group, put a new server's computer object in the right OU, or check who's in a group before granting access. The Active Directory plug-in does this over LDAP, with users, groups, computers, and organizational units as inventory objects, and around forty ready-made workflows.
+
+In this recipe you register a domain controller over LDAPS, create an OU and a group with the built-in workflows, and write a workflow that creates a user with a password, makes it change the password at the next logon, and adds it to the group.
+
+<Recipe type="ready">
+
+- A domain controller that Orchestrator can reach on TCP 636 (LDAPS), with a certificate. This recipe uses `dc01.vmw.lab` in the domain `vmw.lab`.
+- A service account, `svc-vcfguide-ad@vmw.lab`, that may create and change users and groups in the OU this recipe creates. Delegate that right on the OU rather than making the account a domain administrator.
+- A login with administrator rights, the action module `com.vcfguide.chapter5`, and the workflow folder **VCF Orchestrator Guide/Chapter 5**.
+
+</Recipe>
+
+<Recipe type="how">
+
+**Register the domain controller**
+
+1. Go to **Library** > **Workflows**, search with the tags `active_directory` and `configuration`, and run **Add an Active Directory server**.
+2. Enter the host `dc01.vmw.lab`, the port `636`, and the root `DC=vmw,DC=lab`. Set **Use SSL** to **Yes**, and enter the default domain `@vmw.lab`.
+3. Choose a shared session, and enter the user `svc-vcfguide-ad@vmw.lab` and its password.
+4. On the **Alternative hosts** tab, leave the load-balancing choice at **Single Server**. Click **Run**.
+5. Go to **Administration** > **Inventory** > **Active Directory**. Expand `dc01.vmw.lab`: the containers and OUs of the domain are listed.
+
+<Figure n="5.21" caption="Registering a domain controller over LDAPS."
+  capture="Run dialog of <b>Add an Active Directory server</b>: host <code>dc01.vmw.lab</code>, port <code>636</code>, root <code>DC=vmw,DC=lab</code>, <b>Use SSL</b> = <b>Yes</b>, default domain <code>@vmw.lab</code>; the shared-session and <b>Alternative hosts</b> tabs visible." />
+
+<Verify>On 9.1.1, record the tabs and field labels of <b>Add an Active Directory server</b>, the label of the shared-session choice (VMware's API definitions call it <i>Use a shared session (deprecated)</i>), and whether the domain controller's certificate is imported automatically when <b>Use SSL</b> is on, or must be imported first with <b>Import a certificate from URL</b> and <code>dc01.vmw.lab:636</code>.</Verify>
+
+**Create an OU and a group**
+
+6. Search with the tags `active_directory` and run **Create an organizational unit**. Select the domain's root in the inventory picker as the parent, and enter the name `VCF Guide`.
+7. Run **Create a user group in an organizational unit**. Enter the group name `vcfguide-users` and select the OU `VCF Guide`.
+8. In the inventory, refresh `dc01.vmw.lab`. The OU `VCF Guide` holds the group `vcfguide-users`.
+
+**Create users from a workflow**
+
+9. In **Library** > **Actions**, create the action `findAdUser` in `com.vcfguide.chapter5`, with the input `accountName` of type `string` and the **Return type** `AD:User`:
+
+```javascript title="com.vcfguide.chapter5/findAdUser"
+// Returns the user with exactly this account name, or null.
+// searchExactMatch can also return users whose names are only similar,
+// so check the account name of each result.
+var candidates = ActiveDirectory.searchExactMatch("User", accountName, 10);
+for (var i = 0; i < candidates.length; i++) {
+    var name = candidates[i].getAttribute("sAMAccountName");
+    if (name && String(name).toLowerCase() === accountName.toLowerCase()) {
+        return candidates[i];
+    }
+}
+return null;
+```
+
+10. Create the workflow **Create lab user** in **VCF Orchestrator Guide/Chapter 5**, with these inputs and one output:
+
+| Name | Type | Use |
+|---|---|---|
+| `ou` | `AD:OrganizationalUnit` | Where the user is created: `VCF Guide` |
+| `accountName` | `string` | The logon name, such as `jdoe` |
+| `displayName` | `string` | The full name, such as `Jane Doe` |
+| `password` | `SecureString` | The first password |
+| `group` | `AD:UserGroup` | A group to add the user to: `vcfguide-users` |
+| `user` (output) | `AD:User` | The new user |
+
+11. Add one scriptable task, **Create user**, with this script:
+
+```javascript title="Create lab user / Create user"
+var chapter5 = System.getModule("com.vcfguide.chapter5");
+
+if (!/^[A-Za-z0-9._-]{1,20}$/.test(accountName)) {
+    throw "Create lab user: account names are 1-20 letters, digits, dots, dashes or underscores";
+}
+if (chapter5.findAdUser(accountName)) {
+    throw "Create lab user: " + accountName + " already exists";
+}
+
+ou.createUserWithPassword(accountName, password, "vmw.lab", displayName);
+user = chapter5.findAdUser(accountName);
+if (!user) {
+    throw "Create lab user: " + accountName + " was created but can't be found";
+}
+
+user.setChangePasswordAtNextLogon(true);
+group.addElements([user]);
+System.log("Created " + accountName + " (" + displayName + ") in " + ou.name
+    + " and added it to " + group.name);
+```
+
+12. On the **Inputs** tab of the workflow's input form, set `ou` and `group` to default to `VCF Guide` and `vcfguide-users`, and save.
+13. Run the workflow with `jdoe`, `Jane Doe`, and a password that meets the domain's password policy. The log names the OU and the group.
+14. In **Active Directory Users and Computers**, open `jdoe` in **VCF Guide**: **User must change password at next logon** is set, and **Member Of** lists `vcfguide-users`.
+
+<Figure n="5.22" caption="A user created with a password and added to a group from one workflow."
+  capture="Run of <b>Create lab user</b> for <code>jdoe</code>, <b>Logs</b> tab with <i>Created jdoe (Jane Doe) in VCF Guide and added it to vcfguide-users</i>; the <b>Variables</b> tab with <code>user</code> set; password hidden." />
+
+<Verify>On 9.1.1, check in the API Explorer: the arguments of <code>AD:OrganizationalUnit.createUserWithPassword</code> (VMware's API definitions show account name, password, domain name, display name), whether the domain name is <code>vmw.lab</code> or <code>@vmw.lab</code>, whether a <code>SecureString</code> input can be passed as the password, whether the new account is enabled or must be enabled with <b>Enable a user</b>, and that <code>searchExactMatch</code>, <code>getAttribute("sAMAccountName")</code>, <code>setChangePasswordAtNextLogon</code>, and <code>addElements</code> work as shown.</Verify>
+
+</Recipe>
+
+<Recipe type="works">
+
+**One connection, many objects.** **Add an Active Directory server** stores the host, the root, and the account, and opens LDAP connections when a workflow needs them. Everything below the root shows up in the inventory, and each LDAP entry becomes the type that matches its object class: `AD:User`, `AD:UserGroup`, `AD:Computer`, `AD:OrganizationalUnit`, or `AD:Group` for a plain container. That's why the workflow's inputs can be typed as an OU and a group: the input form shows a picker of real objects, and the script gets objects with methods, not strings.
+
+**Why LDAPS?** Active Directory accepts a password only over an encrypted connection. Without SSL, the plug-in can create a user but not give it a password: Broadcom's documentation for **Change a user password** and **Create a user with a password in an organizational unit** says so. Port 636 with **Use SSL** also keeps the service account's password off the wire.
+
+**Why check the account name?** `ActiveDirectory.searchExactMatch` finds objects by name, and Broadcom documents that it can return a user whose name is only similar to the one you asked for, because the first match wins (KB 453685). Asking for up to ten results and comparing `sAMAccountName` yourself makes `findAdUser` return the right user or none. The same check makes step 11 refuse to create a duplicate.
+
+**Validate before you call.** The script checks the account name against a short pattern before it reaches AD, so a name with spaces or `@` fails with a clear message rather than an LDAP error. Do the same on the input form (recipe 3.6), so users see the rule before they click **Run**.
+
+<ThenNow
+  then="The plug-in connected to one Active Directory server, set in the configuration interface, and every search went to it."
+  now="Register several servers with <b>Add an Active Directory server</b>, each with alternative hosts and a load-balancing strategy, and pass the server you want to each search." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**Several domains.** With more than one server registered, searches go to the default one unless you name another. Get the server and pass it as the last argument:
+
+```javascript title="Searching a second domain"
+var hosts = AD_HostManager.findAllHosts();
+var lab2 = null;
+for (var i = 0; i < hosts.length; i++) {
+    if (hosts[i].name === "dc01.lab2.vmw.lab") {
+        lab2 = hosts[i];
+    }
+}
+var users = ActiveDirectory.searchExactMatch("User", "jdoe", 10, lab2);
+```
+
+<Verify>Check on 9.1.1 which property of an <code>AD_Host</code> holds the name shown in the inventory (<code>name</code>, or a host or ID property), and how the default server is chosen when several are registered.</Verify>
+
+**More than one domain controller.** On the **Alternative hosts** tab of **Add an Active Directory server** or **Update an Active Directory server**, list the other domain controllers and choose **Round-Robin**, **Failover**, or **Round-Robin DNS Server**. If runs fail with *LDAPException(resultCode=91 (connect error))* and a timeout on port 636, raise the connection timeout on the **Advanced** tab of **Update an Active Directory server**, or add alternative hosts (KB 395023).
+
+**LDAP filters.** The search functions match names. To find, say, every disabled user in an OU, or users by their `mail` attribute, get an LDAP client from the server with `getLdapClient()`, search with an LDAP filter, and close it when done.
+
+**The workflow library.** Search with the tags `active_directory` and `user`, `user_group`, `computer`, or `organizational_unit`. There are workflows to create, enable, disable, and destroy users and computers, change passwords, and manage group members. Use them as they are, or read their scripts for the calls you need.
+
+**Machines from VCF Automation.** VCF Automation 9.0 no longer adds new machines to Active Directory by itself. Broadcom's replacement is an extensibility subscription that runs an Orchestrator workflow with the computer workflows from this plug-in (KB 393273). Chapter 8 covers subscriptions.
+
+</Recipe>
+
+<Recipe type="see">
+
+- [3.6 Building input forms](../../../chapter-3/recipes/06-input-forms/), for defaults and validation on the form.
+- [4.7 Configuration elements in code](../../../chapter-4/recipes/07-configuration-elements/), to keep the default OU and group in one place.
+- [5.1 How plug-ins work](../01-how-plug-ins-work/), for configuration workflows and the inventory.
+- Broadcom TechDocs (VCF 9.0): [Using the Active Directory plug-in](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/vcf-ochestrator-plugins-overview/using-the-active-directory-plug-in.html), [Using the Active Directory plug-in workflow library](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/vcf-ochestrator-plugins-overview/using-the-active-directory-plug-in/using-the-active-directory-plug-in-workflow-library.html), and [Client-side load balancing for the Active Directory plug-in](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/vcf-ochestrator-plugins-overview/using-the-active-directory-plug-in/client-side-load-balancing-for-the-active-directory-plug-in.html).
+- Broadcom TechDocs (Aria Automation 8.17): [Active Directory plug-in workflow library](https://docs.vmware.com/en/VMware-Aria-Automation/8.17/Using-Automation-Orchestrator-Plugins/GUID-9B9FB80D-C5E5-44A9-85A5-396A0E903B58.html) and [Client-side load balancing](https://docs.vmware.com/en/VMware-Aria-Automation/8.17/Using-Automation-Orchestrator-Plugins/GUID-B8936D09-918C-4F3B-9F0E-824DE29243B3.html).
+- Broadcom KB [453685](https://knowledge.broadcom.com/external/article/453685/searching-for-an-active-directory-user-u.html): `searchExactMatch` returns a similar user. KB [395023](https://knowledge.broadcom.com/external/article/395023/aria-automation-orchestrator-workflow-fa.html): connection timeouts on port 636. KB [393273](https://knowledge.broadcom.com/external/article/393273/adding-provisioned-machines-to-active-di.html): adding VCF Automation machines to AD.
+- VMware's TypeScript definitions for the Active Directory plug-in, in [build-tools-for-vmware-aria](https://github.com/vmware/build-tools-for-vmware-aria/blob/main/vro-types/o11n-plugin-activedirectory/index.d.ts).
+
+</Recipe>

@@ -1,0 +1,210 @@
+---
+title: Node.js actions
+description: Recipe 4.4 — write an action in Node.js, wait for asynchronous work with the callback, add an npm package through an environment, and call the action from JavaScript.
+sidebar:
+  label: 4.4 Node.js actions
+  order: 4
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+Node.js is the second runtime that sits beside Rhino. It's worth choosing when the work is mostly network calls and JSON, or when a well-known npm package already does what you need. Node.js has built-in modules for DNS, HTTP, TLS, and files, and the whole npm registry behind them.
+
+The difference from a JavaScript action is not the language but the model. Node.js does almost everything asynchronously: you start a DNS lookup or an HTTP request, and a function you pass is called when it finishes. An Orchestrator Node.js action tells Orchestrator it's done by calling a **callback**, not by returning a value. In this recipe you write an action that resolves several host names at once, then build an environment with the `semver` package and use it to check a vCenter version against a minimum.
+
+<Recipe type="ready">
+
+- The action module `com.vcfguide.chapter4` from recipe 4.1.
+- Recipe 4.3, for how polyglot actions run and how an environment gets its packages. This recipe doesn't repeat it.
+- Access from the Orchestrator appliance to the npm registry, or to an internal npm mirror. An administrator turns it on under **Environment Repositories**, as in recipe 4.3, steps 5 and 6.
+- The vCenter `vc01.vmw.lab`, registered in recipe 1.9. The examples only read from it.
+
+</Recipe>
+
+<Recipe type="how">
+
+**A first Node.js action**
+
+1. In **Library** > **Actions**, create the action `resolveHostNames` in the module `com.vcfguide.chapter4`.
+2. On the **Script** tab, set the **Runtime** to **Node.js 22**. Add one input, `hostNames`, of type `Array/string`, and set the **Return type** to `Properties`.
+3. The editor fills in a sample handler that logs its inputs and calls `callback(undefined, {status: "done"})`. Replace it with this script and click **Save**:
+
+```javascript title="com.vcfguide.chapter4/resolveHostNames"
+var dns = require("dns");
+
+// Looks up every name in hostNames at the same time and returns
+// name -> first IPv4 address, or "not found". Reads only.
+exports.handler = function (context, inputs, callback) {
+    var names = inputs.hostNames || [];
+    var result = {};
+    var pending = names.length;
+
+    if (pending === 0) {
+        callback(undefined, result);
+        return;
+    }
+
+    names.forEach(function (name) {
+        dns.lookup(name, { family: 4 }, function (err, address) {
+            if (err) {
+                console.log(name + ": " + err.code);
+                result[name] = "not found";
+            } else {
+                console.log(name + " -> " + address);
+                result[name] = address;
+            }
+            pending = pending - 1;
+            if (pending === 0) {
+                callback(undefined, result);
+            }
+        });
+    });
+};
+```
+
+4. Click **Run** and enter three values for `hostNames`: `vc01.vmw.lab`, `vco01.vmw.lab`, and `nothing.vmw.lab`. The result has one key per name. The first two show an address, the third shows `not found`, and the log has one line per lookup, in the order the answers came back.
+
+<Figure n="4.10" caption="A Node.js action that resolves three names in parallel."
+  capture="Run of action <code>com.vcfguide.chapter4/resolveHostNames</code> with <code>hostNames</code> = <code>vc01.vmw.lab</code>, <code>vco01.vmw.lab</code>, <code>nothing.vmw.lab</code>: <b>Runtime</b> = <b>Node.js 22</b> visible, result with two addresses and one <code>not found</code>, and the three <code>console.log</code> lines in the log." />
+
+<Verify>On 9.1.1, confirm that the runtime is listed as <b>Node.js 22</b>, the sample handler the editor fills in, that <code>console.log</code> lines appear on the run's log, and that the container resolves lab names through the appliance's DNS servers.</Verify>
+
+**Report a failure through the callback**
+
+5. A lookup that fails isn't always an answer you want to hide. To fail the whole action instead, pass an `Error` as the callback's first argument. Change the `if (err)` branch to stop at the first name that doesn't resolve:
+
+```javascript title="com.vcfguide.chapter4/resolveHostNames — strict version of the error branch"
+            if (err) {
+                pending = -1; // make sure the callback isn't called again
+                callback(new Error("Could not resolve " + name + ": " + err.code));
+                return;
+            }
+```
+
+6. Run it again with the same three names. The run fails, and the error message names `nothing.vmw.lab`. Put the forgiving branch from step 3 back before you go on: the rest of the recipe uses it.
+
+<Verify>Check how 9.1.1 shows an error passed to <code>callback</code>: the run state, and whether the message of the <code>Error</code> appears as the action's error message. Also check what happens to an exception thrown inside an asynchronous function, which never reaches the callback.</Verify>
+
+**Build an environment with an npm package**
+
+7. Go to **Assets** > **Environments** and click **New Environment**. On the **General** tab, enter the name `vcfguide-node-semver` and the description `Node.js 22 with semver, for the VCF Orchestrator Guide.`
+8. On the **Definitions** tab, set the **Runtime** to **Node.js 22**. Under **Dependencies**, click **Add** and enter:
+   - **Name**: `semver`
+   - **Version**: `7.6.3`
+   - **Repository**: the default, or your npm mirror
+9. Click **Create**, then open the **Download Logs** tab and check that npm installed `semver@7.6.3` without errors.
+
+<Figure n="4.11" caption="A Node.js environment with one npm dependency."
+  capture="Environment <code>vcfguide-node-semver</code>, <b>Download Logs</b> tab, showing npm adding <code>semver@7.6.3</code> and finishing without errors; <b>Definitions</b> tab with <b>Runtime</b> = <b>Node.js 22</b> visible behind it if possible." />
+
+**Use the package in an action**
+
+10. Create the action `checkMinimumVersion` in `com.vcfguide.chapter4`. On the **Script** tab, set the **Runtime** to the environment `vcfguide-node-semver`.
+11. Add the inputs `version` and `minimum`, both of type `string`, and set the **Return type** to `Properties`. Enter this script:
+
+```javascript title="com.vcfguide.chapter4/checkMinimumVersion"
+var semver = require("semver");
+
+// Compares a product version such as "9.0.1" or "9.0.1.0" with a minimum.
+// semver wants exactly three numbers, so coerce() keeps the first three.
+exports.handler = function (context, inputs, callback) {
+    var version = semver.coerce(inputs.version);
+    var minimum = semver.coerce(inputs.minimum);
+
+    if (!version || !minimum) {
+        callback(new Error("Not a version number: " + inputs.version + " / " + inputs.minimum));
+        return;
+    }
+
+    var ok = semver.gte(version, minimum);
+    console.log(version.version + (ok ? " meets " : " is older than ") + minimum.version);
+    callback(undefined, {
+        version: version.version,
+        minimum: minimum.version,
+        ok: ok
+    });
+};
+```
+
+12. Run it with `version` = `9.0.1.0` and `minimum` = `9.0.0`. The result shows `version` = `9.0.1`, `minimum` = `9.0.0`, and `ok` = `true`.
+
+<Figure n="4.12" caption="The npm package at work: a version check returned as Properties."
+  capture="Run of action <code>checkMinimumVersion</code> with <code>version</code> = <code>9.0.1.0</code> and <code>minimum</code> = <code>9.0.0</code>: <b>Runtime</b> = <code>vcfguide-node-semver</code>, result <code>version</code>, <code>minimum</code>, <code>ok</code> = <code>true</code>, and the log line." />
+
+**Call it from JavaScript**
+
+13. In a JavaScript action or scriptable task, read the version of every registered vCenter and check it:
+
+```javascript title="Calling the Node.js action from JavaScript"
+var chapter4 = System.getModule("com.vcfguide.chapter4");
+var connections = VcPlugin.allSdkConnections;
+for (var i = 0; i < connections.length; i++) {
+    var about = connections[i].about;
+    var check = chapter4.checkMinimumVersion(about.version, "9.0.0");
+    if (check.get("ok")) {
+        System.log(connections[i].name + " runs " + about.version + " build " + about.build);
+    } else {
+        System.warn(connections[i].name + " runs " + about.version + ", older than 9.0.0");
+    }
+}
+```
+
+<Verify>Check on 9.1.1 that <code>VcPlugin.allSdkConnections</code> and <code>about.version</code> and <code>about.build</code> return what the script expects for <code>vc01.vmw.lab</code>, and whether the boolean <code>ok</code> arrives in JavaScript as a boolean or as a string.</Verify>
+
+</Recipe>
+
+<Recipe type="works">
+
+A Node.js action runs the same way as a Python action (recipe 4.3). Orchestrator turns the inputs into JSON, starts the Node.js runtime in its own container on the appliance, loads your script, and calls the function your script assigns to `exports.handler`. Code outside that function, such as the `require` lines at the top, runs once when the script loads.
+
+The handler gets three arguments:
+
+- **`context`**, with details of the call. The 9.x documentation names `vroURL` and `executionId`, as for Python.
+- **`inputs`**, an object with one property per input. Read them as `inputs.hostNames` or `inputs["hostNames"]`.
+- **`callback`**, a function you call exactly once when the work is done. Its first argument is the error, or `undefined` if there's none. Its second is the result, which Orchestrator turns back from JSON into the action's return type.
+
+The callback exists because of how Node.js works. In step 3, `dns.lookup` returns at once, before any answer has come back. If the handler simply returned a value, it would return an empty result before a single lookup finished. Instead, each lookup's own function counts down `pending`, and the last one to finish calls `callback`. That's also why the three lookups run at the same time: the total time is that of the slowest lookup, not the sum of all three.
+
+If the handler never calls the callback, Orchestrator has no way to know the work is done, and the run ends only when it hits the action's **Timeout**. Call it once only: what a second call does isn't documented, so don't rely on it. The `pending = -1` in step 5 stops the lookups that answer after a failure from calling it again.
+
+**Packages.** `require("dns")` loads a module built into Node.js, so `resolveHostNames` needs no environment. `require("semver")` loads a package from npm, which only exists in a runtime that has it, so `checkMinimumVersion` must run in an environment that lists `semver` as a dependency. Node.js environments use a single npm repository: the public registry, or one mirror. Python and PowerShell can use several.
+
+**Limits.** The defaults for Node.js are the same as for Python: 64 MB of memory and 180 seconds per run. A package with many dependencies of its own can need more memory just to load. Raise the **Memory limit** on the action's **Script** tab, or on the environment's **Definitions** tab for every action that uses it.
+
+<ThenNow
+  then="Run Node.js scripts on another machine, through the SSH plug-in, and read their output back as text."
+  now="Choose <b>Node.js 22</b> as the runtime of an action or scriptable task, add npm packages through an environment, and get the result back typed." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**Why ES5 style in a runtime that doesn't need it?** Node.js 22 understands modern JavaScript, so `const`, arrow functions, template literals, `async`, and `await` all work in a Node.js action. Rhino is a different matter (recipe 4.1). This book keeps every JavaScript sample, whatever its runtime, to one plain ES5 style, so that a line you copy from one runtime to the other never surprises you. In your own Node.js actions, use whatever Node.js 22 supports.
+
+**Promises and `async`.** Many npm packages return a promise instead of taking a callback. Wait for the promise and call `callback` in both outcomes: `doWork().then(function (value) { callback(undefined, value); }, function (err) { callback(err); });`. Whether 9.x also accepts an `async` handler that returns its result, without a callback, isn't documented.
+
+<Verify>Try on 9.1.1 a handler declared with the <code>async</code> keyword that returns its result instead of calling <code>callback</code>, and record whether the returned object becomes the result, or whether the run waits for a callback until it times out.</Verify>
+
+**Scriptable tasks in Node.js.** A scriptable task in a workflow can use the Node.js runtime too. Community reports on 8.x say a value returned from a Node.js scriptable task didn't always reach the workflow's output, while the same code in an action did. Until you've tested your version, put Node.js code in an action and call the action from the workflow.
+
+**HTTP calls.** Node.js has `https` built in, and recent versions also have `fetch`. Don't turn off certificate checking for the whole process with `NODE_TLS_REJECT_UNAUTHORIZED=0`, even in a lab: the setting tends to survive into production. Pass the CA certificate of your lab to the request instead, or use Orchestrator's REST plug-in (Chapter 5), which keeps trusted certificates in one place.
+
+**ZIP actions.** For several files, or a package you can't reach from the appliance, build the action as a ZIP. Run `npm install --omit=dev` in your project folder, zip the folder with its `node_modules`, set the action's type to **Zip**, import the file, and set the entry handler. `index.handler` means the function `handler` exported from `index.js`.
+
+**Debugging.** Node.js and Python actions can be debugged from an external IDE, as Broadcom's documentation describes. For a quick look, `console.log` with `JSON.stringify(value, null, 2)` shows an object's whole structure in the run's log.
+
+</Recipe>
+
+<Recipe type="see">
+
+- [4.3 Python actions and environments](../03-python-actions/), for how polyglot actions run, repositories, and environments.
+- [4.6 Logging from scripts](../06-logging/), for logging in every runtime.
+- Broadcom TechDocs (VCF 9.0): [Scripting Environments in VCF Operations Orchestrator](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/scripting-environments-in-vcf-operations-orchestrator.html), [Configuring Scripting Environments](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/scripting-environments-in-vcf-operations-orchestrator/configuring-your-scripting-environment.html) (its example is a Node.js environment), and [Runtime Limits for Scripts](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/scripting-environments-in-vcf-operations-orchestrator/runtime-limits-for-scripts.html).
+- Broadcom TechDocs (VCF 9.0): [Core Concepts for Using Python, Node.js, and PowerShell Scripts](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/managing-actions-in-vro/core-concepts-of-multi-language-support.html).
+- Steven Bright: [Using Node.js in Aria Automation Orchestrator 8.10](https://www.stevenbright.com/2023/01/using-node-js-in-aria-automation-orchestrator-8-10/), a walk-through of the callback model with a DNS example.
+- Broadcom community: [VRO NodeJS scriptable task return](https://community.broadcom.com/vmware-cloud-foundation/discussion/vro-nodejs-scriptable-task-return).
+- Node.js 22 documentation: [dns.lookup](https://nodejs.org/docs/latest-v22.x/api/dns.html#dnslookuphostname-options-callback). The `semver` package: [npm page](https://www.npmjs.com/package/semver).
+
+</Recipe>

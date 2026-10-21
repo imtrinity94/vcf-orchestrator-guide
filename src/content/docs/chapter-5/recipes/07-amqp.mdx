@@ -1,0 +1,173 @@
+---
+title: AMQP and messaging
+description: Recipe 5.7 — register a RabbitMQ broker with the AMQP plug-in, declare an exchange and a queue, publish JSON messages from an action, read them back, and start a workflow when a message arrives.
+sidebar:
+  label: 5.7 AMQP and messaging
+  order: 7
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+A REST call needs the other side to be up and listening at that moment. A message queue doesn't: the workflow hands a message to a broker and carries on, and whoever reads the queue picks it up when it's ready, even hours later. That makes queues a good fit for telling other systems that something happened, such as a VM built or a request approved, and for taking work from systems that can't call Orchestrator's API themselves.
+
+The AMQP plug-in talks to brokers that speak AMQP 0-9-1, which in practice means RabbitMQ. In this recipe you register a broker, set up an exchange and a queue with the built-in workflows, publish VM facts as JSON from an action, and read them back. **There's more** shows how a message can start a workflow.
+
+<Recipe type="ready">
+
+- A RabbitMQ server that Orchestrator can reach. This recipe uses `mq01.vmw.lab` on port `5672`, the virtual host `/`, and a RabbitMQ user `vcfguide` that may configure, write, and read there.
+- The action `vmFactsToJson` from recipe 5.6, and the vCenter `vc01.vmw.lab`.
+- A login with administrator rights and the action module `com.vcfguide.chapter5`.
+
+</Recipe>
+
+<Recipe type="how">
+
+**Register the broker**
+
+1. Go to **Library** > **Workflows**, search with the tags `amqp` and `configuration`, and run **Add a broker**.
+2. On the **AMQP broker properties** tab, enter the **Name** `mq01`.
+3. On the **AMQP connection properties** tab, enter the **Host** `mq01.vmw.lab`, leave **Port** at `5672` and **Virtual host** at `/`, leave **Use SSL** off, and enter the user `vcfguide` and its password. Click **Run**.
+4. Run **Validate a broker** and select `mq01`. The run completes without an error. If it fails, fix the setting with **Update a broker**.
+5. Go to **Administration** > **Inventory** > **AMQP**. The broker `mq01` is listed.
+
+<Figure n="5.18" caption="Registering a RabbitMQ broker with the AMQP plug-in."
+  capture="Run dialog of <b>Add a broker</b>, <b>AMQP connection properties</b> tab: <b>Host</b> <code>mq01.vmw.lab</code>, <b>Port</b> <code>5672</code>, <b>Virtual host</b> <code>/</code>, <b>Use SSL</b> off, <b>User name</b> <code>vcfguide</code>, password hidden." />
+
+<Verify>On 9.1.1, check the name of the inventory entry for brokers (<b>AMQP</b> or <b>AMQP Plug-in</b>) and what <b>Validate a broker</b> reports on success and on a wrong password.</Verify>
+
+**Declare an exchange, a queue, and a binding**
+
+6. Search with the tag `amqp` and run **Declare an exchange**. Select `mq01`, enter the name `vcfguide.events`, choose the type **topic**, set **Durable** to **Yes**, and leave automatic deletion at **No**.
+7. Run **Declare a queue**. Select `mq01`, enter the name `vcfguide.vm-facts`, set **Durable** to **Yes**, and leave **Exclusive** and **Auto-delete** at **No**.
+8. Run **Bind**. Select `mq01`, and enter the queue `vcfguide.vm-facts`, the exchange `vcfguide.events`, and the routing key `vm.facts.#`.
+9. In the RabbitMQ management UI, open the exchange `vcfguide.events`. Its **Bindings** list shows the queue with the key `vm.facts.#`.
+
+**Try it without code**
+
+10. Run **Send a text message**. Select `mq01`, enter the exchange `vcfguide.events`, the routing key `vm.facts.test`, and the text `hello from vco01`.
+11. Run **Receive a text message**. Select `mq01` and enter the queue `vcfguide.vm-facts`. The run's output is `hello from vco01`, and the queue is empty again.
+
+<Figure n="5.19" caption="A message sent through an exchange and received from the bound queue."
+  capture="Run of <b>Receive a text message</b> on <code>mq01</code>, queue <code>vcfguide.vm-facts</code>, <b>Variables</b> tab with the output <code>hello from vco01</code>." />
+
+<Verify>Record the inputs and output names of <b>Receive a text message</b> on 9.1.1, and what it does when the queue is empty (returns nothing, or waits). Broadcom's documentation lists the workflow without its inputs.</Verify>
+
+**Publish from an action**
+
+12. In **Library** > **Actions**, create the action `getBroker` in `com.vcfguide.chapter5`, with the input `name` of type `string` and the **Return type** `AMQP:Broker`:
+
+```javascript title="com.vcfguide.chapter5/getBroker"
+// Returns the AMQP broker registered under this name.
+var brokers = Server.findAllForType("AMQP:Broker", null);
+for (var i = 0; i < brokers.length; i++) {
+    if (brokers[i].name === name) {
+        return brokers[i];
+    }
+}
+throw "getBroker: no AMQP broker named " + name;
+```
+
+13. Create the action `publishVmFacts`, with the inputs `brokerName` of type `string` and `vms` of type `Array/VC:VirtualMachine`, and the **Return type** `void`:
+
+```javascript title="com.vcfguide.chapter5/publishVmFacts"
+// Publishes the facts of the VMs as one JSON message to vcfguide.events.
+var chapter5 = System.getModule("com.vcfguide.chapter5");
+var broker = chapter5.getBroker(brokerName);
+
+var message = new AMQPMessage();
+message.bodyAsText = chapter5.vmFactsToJson(vms);
+
+var headers = new Properties();
+headers.put("content_type", "application/json");
+headers.put("source", "vco01.vmw.lab");
+message.headers = headers;
+
+broker.send("vcfguide.events", "vm.facts.report", message);
+System.log("Published facts of " + vms.length + " VMs to vcfguide.events on " + brokerName);
+```
+
+14. Run `publishVmFacts` with `mq01` and two VMs. In the RabbitMQ management UI, the queue `vcfguide.vm-facts` now holds one message.
+
+**Read from an action**
+
+15. Create the action `receiveVmFacts`, with the input `brokerName` of type `string` and the **Return type** `Array/Properties`:
+
+```javascript title="com.vcfguide.chapter5/receiveVmFacts"
+// Takes one message from vcfguide.vm-facts and returns the VMs in it,
+// or an empty array if the queue is empty.
+var chapter5 = System.getModule("com.vcfguide.chapter5");
+var broker = chapter5.getBroker(brokerName);
+
+var message = broker.receive("vcfguide.vm-facts");
+if (!message) {
+    System.log("No message waiting in vcfguide.vm-facts");
+    return [];
+}
+return chapter5.parseVmFactsJson(message.bodyAsText);
+```
+
+16. Run it with `mq01`. The result is the two VMs from step 14. Run it again: the log says *No message waiting*.
+
+<Figure n="5.20" caption="VM facts published as JSON and read back from the queue."
+  capture="Run of action <code>com.vcfguide.chapter5/receiveVmFacts</code> with <code>mq01</code>: result array of two <code>Properties</code>; beside it, the RabbitMQ management UI for <code>vcfguide.vm-facts</code> with the message rate graph showing one message in and one out." />
+
+<Verify>On 9.1.1, confirm in the API Explorer the scripting type of a broker (<code>AMQP:Broker</code>) for <code>Server.findAllForType</code> and the action's return type, that <code>new AMQPMessage()</code> works with <code>bodyAsText</code> and <code>headers</code>, that <code>send(exchange, routingKey, message)</code> and <code>receive(queue)</code> have these arguments, and what <code>receive</code> returns for an empty queue. Also check whether the message's content type is set by a header or by a separate property.</Verify>
+
+</Recipe>
+
+<Recipe type="works">
+
+**Exchanges, queues, and bindings.** In AMQP 0-9-1, a sender never writes to a queue. It sends a message to an **exchange** with a **routing key**, and the exchange copies it into every queue whose **binding** matches the key. A **topic** exchange matches keys made of words separated by dots: `*` stands for one word and `#` for any number of words, so `vm.facts.#` catches `vm.facts.report` and `vm.facts.test`. Other systems can bind their own queues to `vcfguide.events` with other keys, and each gets its own copy, without any change to the workflow.
+
+**Durable.** A durable exchange or queue survives a restart of the broker. Messages survive too only if they're sent as persistent; check the delivery mode your broker and readers expect before you rely on it.
+
+**The broker object.** **Add a broker** stores the connection in Orchestrator and makes the broker an inventory object, so scripts find it by name with `Server.findAllForType` and never see the password. The broker object can also declare exchanges and queues itself, with `declareExchange`, `declareQueue`, and `bind`, which is how a workflow can set up what it needs on a fresh broker.
+
+**Receive takes one message.** `receive(queue)` takes the next message off the queue, or nothing if it's empty, and returns at once. It's for a workflow that checks a queue now and then. To react to each message as it arrives, use a subscription, below.
+
+<ThenNow
+  then="Start a workflow from a message with a policy template from <b>Library</b> > <b>AMQP</b> > <b>Subscription</b>, in the Java client."
+  now="Create the policy yourself in <b>Library</b> > <b>Policies</b>, with the subscription as a policy element. Policies made in 8.x must be recreated after an upgrade to 9.x (KB 446432)." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**Start a workflow when a message arrives.** Run **Subscribe to queues** (tags `amqp` and `configuration`), enter the name `vcfguide-vm-facts`, select `mq01`, and select the queue `vcfguide.vm-facts`. The subscription appears under the broker in the inventory. Then create a workflow, **Handle VM facts message**, with one input, `subscription` of type `AMQP:Subscription`, and a scriptable task:
+
+```javascript title="Handle VM facts message / Read message"
+// Called by the policy for each message on the subscription's queues.
+var trigger = subscription.retrieveLastOnMessageTrigger();
+var message = subscription.retrieveMessage(trigger);
+var vms = System.getModule("com.vcfguide.chapter5").parseVmFactsJson(message.bodyAsText);
+System.log("Message with " + vms.length + " VMs received on " + subscription.name);
+```
+
+Go to **Library** > **Policies** and create the policy **VCF Guide VM facts**. On the **Definition** tab, add a policy element for the subscription `vcfguide-vm-facts`, add its **OnMessage** event, and point the event at **Handle VM facts message**, with the policy element bound to `subscription`. Run the policy. Each message now starts a run of the workflow, which you'll find under **Activity** > **Policy Runs**.
+
+<Verify>Build this policy on 9.1.1 and record every step: the policy element type for a subscription, the exact name and casing of the message event (<b>OnMessage</b> or <b>onMessage</b>), how the element is passed to the workflow's input, and the scripting type <code>AMQP:Subscription</code>. Check that <code>retrieveLastOnMessageTrigger</code> and <code>retrieveMessage</code> work as shown, and which user the policy's runs use in 9.x (KB 446432).</Verify>
+
+**TLS.** Set **Use SSL** to **Yes** and use RabbitMQ's TLS port, usually `5671`. Import the broker's certificate first with **Import a certificate from URL**, rather than choosing **Accept all certificates**, which turns off the check. If RabbitMQ allows only TLS 1.3, connections fail with *protocol_version* until you run `vracli vro properties set -k o11n.plugin.amqp.ssl-context-protocol -v TLSv1.3` on the appliance (KB 427111, recipe 2.8).
+
+<Verify>Confirm that <b>Import a certificate from URL</b> can read the certificate of <code>mq01.vmw.lab:5671</code>, and that a broker with <b>Use SSL</b> and without <b>Accept all certificates</b> connects once it's imported.</Verify>
+
+**Request and reply.** `broker.sendAndReceive(exchange, routingKey, message, timeoutSeconds)` sends a message and waits for the answer, for systems that reply on a queue. Keep the timeout short: the workflow run holds a thread while it waits.
+
+**Kafka and other brokers.** Orchestrator 9.x has no Kafka plug-in, and the AMQP plug-in speaks only AMQP 0-9-1, not AMQP 1.0. For Kafka, call a Kafka REST proxy with the HTTP-REST plug-in (recipe 5.2), or use a Kafka client library from a Node.js or Python action (Chapter 4).
+
+</Recipe>
+
+<Recipe type="see">
+
+- [5.6 XML and JSON](../06-xml-json/), for `vmFactsToJson` and `parseVmFactsJson`.
+- [3.7 Waiting tasks and custom events](../../../chapter-3/recipes/07-waiting-and-events/), for other ways to make a workflow wait for something outside.
+- [2.8 System properties](../../../chapter-2/recipes/08-system-properties/), for `vracli vro properties set`.
+- Broadcom TechDocs (VCF 9.0 and 9.1): [Using the AMQP plug-in](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/vcf-ochestrator-plugins-overview/using-the-amqp-plug-in.html), [Configuring the AMQP plug-in](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/vcf-ochestrator-plugins-overview/using-the-amqp-plug-in/configuring-the-amqp-plug-in.html), [Add a broker (9.1)](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-1/configuration-of-vmware-cloud-foundation-operations-orchestrator/vcf-ochestrator-plugins-overview/using-the-amqp-plug-in/configuring-the-amqp-plug-in/add-a-broker.html), [Subscribe to queues](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/vcf-ochestrator-plugins-overview/using-the-amqp-plug-in/configuring-the-amqp-plug-in/subscribe-to-queues.html), [Using the AMQP plug-in standard workflows](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/vcf-ochestrator-plugins-overview/using-the-amqp-plug-in/using-the-amqp-plug-in-standard-workflows.html), [Managing policies](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/managing-policies-in-vro.html), and [Policy elements](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/managing-policies-in-vro/policy-elements.html).
+- Broadcom TechDocs (Aria Automation 8.12): [Declare an exchange](https://docs.vmware.com/en/VMware-Aria-Automation/8.12/Using-Automation-Orchestrator-Plugins/GUID-F52865EF-07AB-4844-87FF-136BFB3FA9F1.html) and [Declare a queue](https://docs.vmware.com/en/VMware-Aria-Automation/8.12/Using-Automation-Orchestrator-Plugins/GUID-36275BB6-BD6C-4306-9BC5-EE8B90E60FF6.html).
+- Broadcom KB [427111](https://knowledge.broadcom.com/external/article/427111/vmware-aria-orchestrator-8x-fails-to-con.html): RabbitMQ with TLS 1.3. KB [446432](https://knowledge.broadcom.com/external/article/446432/automated-orchestrator-policies-fail-to.html): policies after an upgrade to VCF 9.
+- VMware's TypeScript definitions for the AMQP plug-in, in [build-tools-for-vmware-aria](https://github.com/vmware/build-tools-for-vmware-aria/blob/main/vro-types/o11n-plugin-amqp/index.d.ts).
+- RabbitMQ documentation: [AMQP 0-9-1 model explained](https://www.rabbitmq.com/tutorials/amqp-concepts).
+
+</Recipe>
