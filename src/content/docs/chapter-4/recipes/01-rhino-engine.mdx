@@ -111,7 +111,7 @@ This book keeps every JavaScript sample to plain ES5.1: `var`, `function`, strin
 
 <Recipe type="more">
 
-**Use `System.log`, not `console.log`.** A script's log lines go to the run's **Logs** tab through `System.log`, `System.warn`, `System.error`, and `System.debug`. Recipe 3.2 introduced them, and a later recipe in this chapter covers logging in depth.
+**Use `System.log`, not `console.log`.** A script's log lines go to the run's **Logs** tab through `System.log`, `System.warn`, `System.error`, and `System.debug`. Recipe 3.2 introduced them, and recipe [4.6](../06-logging/) covers logging in depth.
 
 **No timers, no promises.** A script runs from top to bottom and then ends. There's no event loop to call you back later, so `setTimeout` doesn't exist, and a promise never settles after the script ends. To wait, use the elements in recipe 3.7. To call an HTTP service, use the HTTP-REST plug-in (Chapter 5).
 

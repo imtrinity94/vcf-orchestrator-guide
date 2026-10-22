@@ -1,0 +1,155 @@
+---
+title: Sending and reading mail
+description: Recipe 5.5 — set the default SMTP connection with the Configure mail workflow, trust the mail server's certificate, send HTML mail from an action, and read a mailbox.
+sidebar:
+  label: 5.5 Sending and reading mail
+  order: 5
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+Mail is still the simplest way for a workflow to tell a person something: a report is ready, a request needs approval, a run failed at three in the morning. The Mail plug-in sends mail over SMTP. With the Net plug-in beside it, it can also read a mailbox over POP3 or IMAP.
+
+In this recipe you set the server-wide mail defaults once, send a test message with a built-in workflow, and then write an action that sends an HTML report built from the rows recipe 5.4 stored in PostgreSQL.
+
+<Recipe type="ready">
+
+- An SMTP server that Orchestrator can reach. This recipe uses `mail01.vmw.lab` on port `587` with STARTTLS, and a mailbox account `vcfguide@vmw.lab` that is allowed to send.
+- A mailbox to send to. The examples use `mayank@vmw.lab`.
+- A login with administrator rights, the action module `com.vcfguide.chapter5`, and, for the report, the database `db01-vcfguide` and the action `latestVmFacts` from recipe 5.4.
+
+</Recipe>
+
+<Recipe type="how">
+
+**Trust the mail server's certificate**
+
+1. Go to **Library** > **Workflows**, search with the tag `configuration`, and run **Import a certificate from URL**.
+2. Enter `mail01.vmw.lab:587` as the URL, without `https://`, and click **Run**. Check that the certificate shown in the run's log is the one your mail server presents.
+
+<Verify>Check that <b>Import a certificate from URL</b> on 9.1.1 can read the certificate of an SMTP server that offers it only after STARTTLS (port 587). Broadcom KB 332546 imports <code>smtp.yourcompany.com:587</code> this way on 8.x, through Control Center. If the workflow fails, import the CA certificate as a PEM file with <b>Import a trusted certificate from a file</b> instead, and record which one works.</Verify>
+
+**Set the default SMTP connection**
+
+3. Search with the tag `mail` and run **Configure mail**.
+4. On the **Host** tab, enter the **SMTP host** `mail01.vmw.lab` and the **SMTP port** `587`.
+5. On the **Credentials** tab, enter the user `vcfguide@vmw.lab` and its password.
+6. On the **Email Content** tab, enter the sender's address `vcfguide@vmw.lab` and the sender's name `VCF Orchestrator Guide`. Click **Run**.
+
+<Figure n="5.13" caption="The default mail settings, set once with the Configure mail workflow."
+  capture="Run dialog of <b>Configure mail</b>, <b>Host</b> tab: <b>SMTP host</b> <code>mail01.vmw.lab</code>, <b>SMTP port</b> <code>587</code>; the <b>Credentials</b> and <b>Email Content</b> tabs visible." />
+
+<Verify>Record the exact field labels of <b>Configure mail</b> on 9.1.1, and whether it has inputs for SSL and STARTTLS. Broadcom's 9.0 page lists only the host, port, user, password, and sender's address and name.</Verify>
+
+**Send a test message**
+
+7. Search with the tag `mail` and run **Send notification**. Enter the **To** address `mayank@vmw.lab`, the subject `Test from vco01`, and a line of text as the content. Leave the SMTP fields empty, so the defaults from step 6 are used. If your server needs STARTTLS, set **Use STARTTLS** to **Yes**.
+8. Click **Run**. The run completes and the message arrives from **VCF Orchestrator Guide**.
+
+<Figure n="5.14" caption="A test message sent with the Send notification workflow."
+  capture="Run of <b>Send notification</b> to <code>mayank@vmw.lab</code>, completed; the <b>Variables</b> tab with the empty SMTP inputs and <b>Use STARTTLS</b> = <b>Yes</b>. Optionally, the received message beside it." />
+
+<Verify>Record the input labels of <b>Send notification</b> on 9.1.1, in particular the STARTTLS and SSL choices, which this recipe takes from the library workflow's script in earlier releases.</Verify>
+
+**Send an HTML report from an action**
+
+9. In **Library** > **Actions**, create the action `sendHtmlMail` in `com.vcfguide.chapter5`, with the inputs `toAddress`, `subject`, and `html`, all of type `string`, and the **Return type** `void`:
+
+```javascript title="com.vcfguide.chapter5/sendHtmlMail"
+// Sends an HTML message with the server's default SMTP settings.
+// toAddress can hold several addresses separated by commas.
+if (!toAddress) {
+    throw "sendHtmlMail: no recipient";
+}
+var message = new EmailMessage();
+message.useStartTls = true;   // the server in this book needs STARTTLS on 587
+message.toAddress = toAddress;
+message.subject = subject;
+message.addMimePart(html, "text/html; charset=UTF-8");
+message.sendMessage();
+System.log("Mail '" + subject + "' sent to " + toAddress);
+```
+
+10. Create the action `mailVmFactsReport`, with the inputs `toAddress` and `databaseName` of type `string`, and the **Return type** `void`. It turns the latest rows of `vm_facts` into an HTML list:
+
+```javascript title="com.vcfguide.chapter5/mailVmFactsReport"
+// Mails the ten most recent rows of vm_facts as an HTML list.
+function htmlText(value) {
+    return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+}
+
+var chapter5 = System.getModule("com.vcfguide.chapter5");
+var lines = chapter5.latestVmFacts(databaseName, 10);
+
+var html = "<p>The latest VM facts recorded in " + htmlText(databaseName) + ":</p><ul>";
+for (var i = 0; i < lines.length; i++) {
+    html += "<li>" + htmlText(lines[i]) + "</li>";
+}
+html += "</ul><p>Sent by " + htmlText(Server.getRunningUser().name) + " from Orchestrator.</p>";
+
+chapter5.sendHtmlMail(toAddress, "VM facts report (" + lines.length + " rows)", html);
+```
+
+11. Run `mailVmFactsReport` with `mayank@vmw.lab` and `db01-vcfguide`. The log says `Mail 'VM facts report (3 rows)' sent to mayank@vmw.lab`, and the message shows a bulleted list.
+
+<Figure n="5.15" caption="An HTML report sent from an action."
+  capture="The received <i>VM facts report</i> message in a mail client, showing the bulleted list of VMs; beside it, the <b>Logs</b> tab of the <code>mailVmFactsReport</code> run with the <i>Mail … sent to</i> line." />
+
+<Verify>On 9.1.1, check in the API Explorer that <code>EmailMessage</code> has the properties <code>useStartTls</code>, <code>useSsl</code>, <code>toAddress</code>, and <code>subject</code>, that a property you don't set falls back to the <b>Configure mail</b> defaults, and that <code>Server.getRunningUser().name</code> returns the user's name.</Verify>
+
+</Recipe>
+
+<Recipe type="works">
+
+**Configure mail** stores the defaults that every mail workflow and every `EmailMessage` object starts from: host, port, user, password, and sender. A script only sets what's different for one message, usually the recipients, the subject, and the content. That keeps the mail account's password out of workflows, like the database password in recipe 5.4.
+
+**`EmailMessage`** is one message. `toAddress`, `ccAddress`, and `bccAddress` each take one address or several separated by commas. `addMimePart(content, type)` adds a part to the body: plain text with `text/plain`, HTML with `text/html`, or a file as a `MimeAttachment`. `sendMessage()` connects to the server, sends, and disconnects. If the server refuses the message, it throws, and the error text from the server is in the run's log.
+
+**Why `htmlText`?** The report puts VM names, which come from vCenter, into HTML. A name with `<` or `&` in it would break the layout, and a crafted name could add a link or an image to the message. Escaping every value, like `sqlText` in recipe 5.4, makes the content plain text inside the HTML.
+
+**Certificates.** With STARTTLS, the connection starts in plain text and switches to TLS after the server offers it. Orchestrator then checks the server's certificate against its trust store, and an untrusted certificate fails with *Could not convert socket to TLS* and *unable to find valid certification path to requested target* (KB 332546). Importing the certificate in step 2 prevents that. Orchestrator only speaks TLS 1.2 and later, so an old server that offers only TLS 1.0 or 1.1 fails too.
+
+<ThenNow
+  then="Set the default SMTP host, port, account, and sender on the <b>Mail</b> tab of the configuration interface, and import the mail server's certificate there."
+  now="Run the <b>Configure mail</b> workflow in the Orchestrator Client, and import the certificate with <b>Import a certificate from URL</b>." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**Port 465.** Some servers want TLS from the first byte, on port `465`, instead of STARTTLS. Set `useSsl = true` and `smtpPort = 465` in the script, or the matching inputs of **Send notification**, and leave `useStartTls` off.
+
+**Don't send through a load balancer.** Broadcom's documentation warns that an SMTP load balancer can cause the error `SMTP_HOST_UNREACHABLE`. Point **Configure mail** at a mail server, or at a relay that answers on one address.
+
+**When the old server comes back.** If you change mail servers and messages still go to the old one, look in **Assets** > **Resources** for a resource element that still holds the old server's name. KB 402979 describes this: **Configure mail** reports success, but the stale resource wins. Delete it and run **Configure mail** again.
+
+<Verify>Check whether a 9.1.1 appliance has an <b>Assets</b> > <b>Resources</b> element for the mail settings after <b>Configure mail</b> runs, and what it is called. KB 402979 was written for 8.x.</Verify>
+
+**Microsoft 365 and Gmail.** Both are moving away from plain user-and-password logins for SMTP. The Mail plug-in authenticates only with a user name and password; Broadcom documents no OAuth 2.0 support. For these services, send through an internal relay that accepts mail from `vco01.vmw.lab`, or use the provider's REST API with the HTTP-REST plug-in from recipe 5.2.
+
+**Reading a mailbox.** The built-in workflow **Retrieve messages** reads a mailbox over POP3 and removes what it reads, and **Retrieve messages (via MailClient)** reads without deleting, through the `MailClient` scripting object. Use them for a simple mail-driven trigger, such as a shared mailbox that receives requests. For anything busier, a message queue (recipe 5.7) is more reliable than polling a mailbox.
+
+<Verify>Run <b>Retrieve messages (via MailClient)</b> on 9.1.1 against an IMAP mailbox, and record its inputs and the <code>MailClient</code> methods it calls (connect, list, read, close), so the book can show a short script.</Verify>
+
+**Mail from a user interaction.** When a workflow waits for a user interaction (recipe 3.9), send the approver a message with a link to the run. The approver still answers in the Orchestrator Client or in VCF Automation; the mail is only the nudge.
+
+</Recipe>
+
+<Recipe type="see">
+
+- [5.4 SQL databases](../04-sql-databases/), for `latestVmFacts` and the escaping pattern.
+- [3.9 User interactions and approvals](../../../chapter-3/recipes/09-user-interactions/).
+- [5.2 REST hosts and operations](../02-rest-hosts/), for certificates and mail APIs.
+- Broadcom TechDocs (VCF 9.0): [Using the Mail plug-in](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/vcf-ochestrator-plugins-overview/using-the-mail-plug-in.html) and [Define the default SMTP connection](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/vcf-ochestrator-plugins-overview/using-the-mail-plug-in/define-the-default-smtp-connection-new.html).
+- Broadcom TechDocs (Aria Automation 8.13): [Using the Mail plug-in sample workflows](https://techdocs.broadcom.com/us/en/vmware-cis/aria/aria-automation/8-13/vro-using-plug-ins-8-13/using-the-mail-plug-in/using-the-mail-plug-in-sample-workflows.html).
+- Broadcom KB [332546](https://knowledge.broadcom.com/external/article/332546/error-cannot-send-mail-in-aria-automatio.html): *Cannot send mail*, *Could not convert socket to TLS*.
+- Broadcom KB [402979](https://knowledge.broadcom.com/external/article/402979/configure-mail-workflow-succeeds-but-smt.html): mail still goes to the old SMTP server.
+- Broadcom KB [325987](https://knowledge.broadcom.com/external/article/325987/connecting-to-tls10-or-tls11-services-fa.html): connections to TLS 1.0 and 1.1 services fail.
+
+</Recipe>

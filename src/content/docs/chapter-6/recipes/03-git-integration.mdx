@@ -1,0 +1,159 @@
+---
+title: Git integration and branching
+description: Recipe 6.3 — connect Orchestrator to a GitHub or GitLab repository, push and pull content on a branch, reset the server to an earlier commit, and know what Git never stores.
+sidebar:
+  label: 6.3 Git integration
+  order: 3
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+Version history (recipe 6.1) lives inside one Orchestrator. Connect that Orchestrator to a Git repository and the same history is pushed to a server your team already backs up, reviews, and understands. Each change you save on Orchestrator becomes a commit you can push to a branch, and changes others push to that branch can be pulled back in. Branches are what make Git useful for more than backup: in recipe 6.4 a development and a production Orchestrator follow two branches of one repository.
+
+In this recipe you prepare a GitHub repository, connect `vco01.vmw.lab` to its `develop` branch, push the chapter's content, pull a change made in GitHub, and roll the server back to an earlier commit. GitLab works the same way. Only the token page differs.
+
+<Recipe type="ready">
+
+- Administrator rights on `vco01.vmw.lab`, and the content from recipe 6.1 on it.
+- A GitHub account, and an empty private repository you can create branches in. This recipe calls it `vcfguide-content`. If you use GitLab, create a project instead.
+- `vco01` able to reach `github.com` (or your GitLab server) on TCP 443. If the appliance goes out through a proxy, set that up first.
+- A VCF licence. Broadcom documents Git integration as needing a VMware Cloud Foundation licence. Every VCF 9 Orchestrator has one.
+
+</Recipe>
+
+<Recipe type="how">
+
+**Prepare the repository**
+
+1. In GitHub, create the private repository `vcfguide-content` with a `README.md`, so it has a `main` branch.
+2. Create a second branch, `develop`, from `main`. `vco01` will push to `develop`. `main` is for content that's been reviewed (recipe 6.4).
+3. Create a **fine-grained personal access token** for Orchestrator. Limit it to the repository `vcfguide-content`, give it **Contents** read and write access, and set an expiry date you'll remember. Copy the token: GitHub shows it only once.
+
+<Verify>Confirm on 9.1.1 that a GitHub fine-grained token with only <b>Contents</b> read and write is enough for validate, push, and pull, and whether a classic token with the <code>repo</code> scope is needed instead.</Verify>
+
+**Connect Orchestrator**
+
+4. On `vco01`, go to **Administration** > **Git Repositories** and click **Add Repository**.
+5. Enter the repository's HTTPS URL, `https://github.com/<your-account>/vcfguide-content.git`, your GitHub user name, and the token as the access token.
+6. Click **Validate**. Orchestrator connects to GitHub with the token and lists the branches it finds.
+7. Change the **Name** to `vcfguide-content`, and add a description such as `VCF Orchestrator Guide content, development`.
+8. Click **Make active repository**, choose the branch `develop`, and click **Save**.
+9. Back in the list of repositories, `vcfguide-content` shows the status **Active**.
+
+<Figure n="6.9" caption="Connecting Orchestrator to a GitHub repository."
+  capture="<b>Administration > Git Repositories > Add Repository</b> on <code>vco01</code>: URL <code>https://github.com/…/vcfguide-content.git</code>, user name, token (hidden), <b>Validate</b> succeeded, <b>Name</b> <code>vcfguide-content</code>, <b>Make active repository</b> on, branch <code>develop</code> selected." />
+
+<Figure n="6.10" caption="The active repository."
+  capture="<b>Administration > Git Repositories</b> list with <code>vcfguide-content</code>, branch <code>develop</code>, status <b>Active</b>." />
+
+<Verify>On 9.1.1, record the exact field labels of <b>Add Repository</b>, whether the branch is chosen in a drop-down filled by <b>Validate</b>, and what <b>Validate</b> shows on success and with a wrong token.</Verify>
+
+**Push the content**
+
+10. Go to **Administration** > **Git History**. The page compares the server's local history with the `develop` branch. Expand an entry to see which objects changed.
+11. Click **Push**. Enter the commit title `Chapter 6 example content` and, if you like, a short description.
+12. Select the changes to push. For the first push, select the workflow, the action, and the configuration element from recipe 6.1.
+13. Click **Push**. When it finishes, the entry shows as pushed.
+14. Open the `develop` branch in GitHub. There's a new commit with your title, and the repository now holds the three objects as files, under folders for workflows, actions, and configuration elements.
+
+<Figure n="6.11" caption="Pushing a change set from Git History."
+  capture="<b>Administration > Git History</b> on <code>vco01</code>, <b>Push</b> dialog: commit title <code>Chapter 6 example content</code>, description, and the changed objects (<b>Report powered-on VMs</b>, <code>countPoweredOnVms</code>, <code>vcfguide-ch6-settings</code>) selected." />
+
+<Figure n="6.12" caption="The pushed content on GitHub."
+  capture="GitHub, repository <code>vcfguide-content</code>, branch <code>develop</code>: the commit <i>Chapter 6 example content</i> and the folder tree Orchestrator created, opened down to the file for <b>Report powered-on VMs</b>." />
+
+<Verify>On 9.1.1, record what the first <b>Git History</b> view lists on a server that has never pushed (only your own content, or every object including the library), and the folder layout and file format Orchestrator writes to the repository.</Verify>
+
+**Push from the editor**
+
+15. Open **Report powered-on VMs**, change its description, and save.
+16. You don't have to go to **Git History** for one object. The workflow editor has a version control at the bottom: use it to push this workflow's change on its own, with a commit title.
+
+<Verify>Find the per-object push in the 9.1.1 workflow editor (the 8.16 documentation calls it the <b>Version</b> option at the bottom of the object editor) and record its label and dialog.</Verify>
+
+**Pull a change made elsewhere**
+
+17. In GitHub, open the file for `vcfguide-ch6-settings` on `develop` and change the value of `reportPrefix` from `VCF Guide` to `VCF Guide (Git)`. Commit it to `develop`.
+18. On `vco01`, go to **Administration** > **Git History** and click **Pull**. Orchestrator fetches the new commit and applies it.
+19. Open `vcfguide-ch6-settings`. `reportPrefix` now reads `VCF Guide (Git)`, and the element's **Version History** shows the pull as a new entry. Change it back in Orchestrator, save, and push.
+
+<Verify>Steps 17 to 19 assume configuration element values are stored in the repository in plain text and applied on pull. Check both on 9.1.1, and whether editing the file in GitHub is accepted or rejected for a bad version number or signature.</Verify>
+
+**Go back to an earlier commit**
+
+20. In **Git History**, select the commit *Chapter 6 example content* and click **Reset to this**. Confirm with **Ok**.
+21. The server's content is now exactly as it was at that commit: the workflow's later description is gone. Content that didn't exist at that commit is removed from the server altogether.
+22. To return to the latest state of the branch, click **Pull**.
+
+</Recipe>
+
+<Recipe type="works">
+
+**Two repositories, one branch.** Orchestrator already keeps its content in a local Git repository (recipe 6.1). Connecting an external repository links that local repository to one branch of a remote one. **Push** sends local commits to the branch. Before it does, Orchestrator brings in any commits on the branch that it doesn't have yet and replays its own on top, as `git pull --rebase` would. The server log of a failed push in KB 314887 shows that rebase step. **Pull** brings the branch's commits in and applies them to the server's content. Only one repository can be active at a time, and it follows one branch.
+
+**Change sets.** **Git History** shows the difference between the server and the branch as a list of change sets, one for each saved change. You choose which to push, and **Discard all** throws away every local change that hasn't been pushed. Any workflow developer can push or discard a change set, whatever their group permissions. If that's too open for production, keep developer roles off the production server (recipe 6.4).
+
+**Secrets never reach Git.** When Orchestrator writes an object to the repository, it replaces every `SecureString` value with a `__NULL__` placeholder. That's deliberate: credentials don't belong in Git history. It has a consequence you need to plan for. If the server ever replays the whole repository into its database, the placeholders overwrite the real values, and your passwords become empty. Broadcom KB 446735 lists what triggers that full re-sync:
+
+- making a different repository active,
+- changing the repository's URL,
+- changing the branch it follows, for example from `develop` to `main`,
+- turning Git integration off and on again, in the client or through the API.
+
+Choose the repository and branch once, before you push anything. If you must change them, write down every `SecureString` value first, so you can re-enter them afterwards. `apiToken` in `vcfguide-ch6-settings` is in the example to remind you.
+
+**Conflicts.** A pull applies remote commits one after another. When a remote change and a local one touch the same object, the pull stops on a merge conflict, and each conflicting object has to be resolved before it can go on. Changes made by hand in the repository, including changes to line endings by a Git client on Windows, are the usual cause.
+
+<Verify>Create a pull conflict on 9.1.1 (change the same workflow in GitHub and on <code>vco01</code>, then pull) and record how the client presents it: the <b>Resolve Conflicts</b> window from recipe 6.1, or another dialog.</Verify>
+
+**Limits worth knowing.** Orchestrator only works with SHA-1 commit hashes. If an abbreviated hash in the local repository matches one in the remote, push fails with *Could not resolve uniquely the abbreviated object ID*, and the only way out is to discard or reset the local repository (KB 314887). Each Orchestrator has one SSH key, so to connect repositories from different accounts, use HTTPS with a token rather than SSH. Workflows generated by **Generate CRUD workflows for a table** aren't tracked and can't be pushed.
+
+<ThenNow
+  then="There was no Git integration. Export workflows or packages as files and commit them to source control yourself, or build them with VMware's Maven-based tools."
+  now="Connect a GitHub or GitLab repository under <b>Administration</b> > <b>Git Repositories</b>, push and pull change sets from <b>Git History</b>, and reset the whole server to an earlier commit." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**SSH instead of a token.** Instead of an HTTPS URL and a token, you can enter the repository's SSH URL. Orchestrator then authenticates with its own SSH key pair. Add its public key to the repository as a deploy key with write access. The REST API returns the key with `GET /vco/api/content-repositories/public-keys`.
+
+<Verify>On 9.1.1, find where the client shows Orchestrator's public SSH key for Git, and confirm the path of the public-keys call (the 9.1 API reference lists <b>Get Public Keys</b> under the Repository (Version Control) Service).</Verify>
+
+**Restoring one workflow from Git.** **Pull** and **Reset to this** work on the whole server. There's no way to pull a single file. To get back one workflow that was deleted from Orchestrator but still exists in Git, Broadcom's KB 453014 suggests a detour: import the workflow's file from the repository into a sandbox Orchestrator, put it in a package there, and import that package into the server that lost it. Try **Deleted Items** first (recipe 6.1). It's much quicker.
+
+**Large pulls.** Pulling many commits with many conflicts can run into the database transaction timeout. Broadcom KB 452775 suggests squashing or rebasing the branch in Git first, and, if that isn't enough, raising the timeout from the appliance's root shell:
+
+```bash title="Raise the database transaction timeout (KB 452775)"
+vracli vro properties set -k com.vmware.o11n.db.transaction.timeout -v 1200
+```
+
+Back up the appliance before changing properties (recipe 2.6).
+
+<Verify>Check on 9.1.1 that <code>vracli vro properties set</code> accepts this key and that it needs no restart. KB 452775 was written for 8.18.</Verify>
+
+**Push and pull from a pipeline.** Everything in **Git History** is also in the REST API's Repository (Version Control) Service: `GET /vco/api/content-repositories/state` shows how far the server is ahead of or behind the branch, and push and pull are requests, such as `POST /vco/api/content-repositories/requests/pull`, that you start and then poll until they finish. A scheduled workflow or an external pipeline can pull every night, so a server never drifts far from its branch.
+
+<Verify>Run a pull and a push through the 9.1 REST API on <code>vco01</code> and record the request bodies, the status values to poll for, and the response when a merge conflict stops a pull (KB 452775 describes a <code>MERGE_CONFLICT</code> status with the conflicting paths).</Verify>
+
+**Clusters.** A three-node cluster (recipe 2.4) shares one database, and so one local repository and one connection. Set up Git once, on any node's client.
+
+<Verify>Confirm on a 9.1.1 cluster that the Git connection and <b>Git History</b> are shared by all nodes.</Verify>
+
+</Recipe>
+
+<Recipe type="see">
+
+- [6.1 Version history and restore](../01-version-history/), for the local history Git builds on.
+- [6.4 Promoting content from development to production](../04-promoting-content/), which uses a second branch and a pull request.
+- Broadcom TechDocs (VCF 9.0): [VCF Operations orchestrator Object Version History](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/types-of-orchestrator-instances/version-history-in-the-vrealize-orchestrator-operations-client.html), with **Reset Your VCF Operations orchestrator Content Inventory to a Previous State with Git**; [Prepare Your GitLab Environment](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/setting-up-the-vrealize-orchestrator-client/how-can-i-use-git-branching-to-manage-my-vrealize-orchestrator-object-inventory/create-a-python-branch-in-your-git-repository.html) and the pages beside it.
+- Broadcom TechDocs (VCF 9.1): **Git Branching for VCF Operations orchestrator Content Management**, under [Operations and Maintenance Tasks for VCF Operations Orchestrator](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-1/configuration-of-vmware-cloud-foundation-operations-orchestrator/administering-vcf-operations-orchestrator/vcf-operations-orchestrator-operations-and-maintenance.html).
+- VMware Docs (Aria Automation Orchestrator 8.16–8.17): [Configure a connection to a Git repository](https://docs.vmware.com/en/VMware-Aria-Automation/8.17/Using-Automation-Orchestrator/GUID-9751E22F-B517-4EAC-9580-709A8FA3F24C.html) and [Push changes to a Git repository](https://docs.vmware.com/en/VMware-Aria-Automation/8.16/Using-Automation-Orchestrator/GUID-95CD2059-267E-426A-9B1B-90575BA31D27.html).
+- Broadcom KB [446735](https://knowledge.broadcom.com/external/article/446735) (secure strings after Git synchronization), [314887](https://knowledge.broadcom.com/external/article/314887/push-to-git-repository-fails-with-could.html) (abbreviated object ID), [453014](https://knowledge.broadcom.com/external/article/453014/selective-workflow-restoration-from-git.html) (restoring one workflow from Git), [452775](https://knowledge.broadcom.com/external/article/452775/content-repository-pull-process-scaling.html) (large pulls and merge conflicts).
+- Broadcom developer documentation (VCF Operations Orchestrator API 9.1): [Repository (Version Control) Service](https://developer.broadcom.com/xapis/vcf-operations-orchestrator-api/9.1/repository(version-control)-service/).
+- Cloudblogger: [Git & Orchestrator: automated synchronization with remote repo](https://cloudblogger.co.in/2024/05/11/git-orchestrator-automated-synchronization-with-remote-repo/), a workflow that pushes and pulls through the REST API.
+- GitHub Docs: [Managing your personal access tokens](https://docs.github.com/en/authentication/keeping-your-account-secure/managing-your-personal-access-tokens).
+
+</Recipe>
