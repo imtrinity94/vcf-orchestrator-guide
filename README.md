@@ -13,7 +13,8 @@ A free, open cookbook for **VCF Operations Orchestrator 9.x**, written by Mayank
 | 3. Visual programming | Draft, in review |
 | 4. Scripting and environments | Draft, in review |
 | 5. Working with plug-ins | Draft, in review |
-| 6–8 | Coming soon |
+| 6. Content lifecycle | Draft in progress (6.1–6.4) |
+| 7–8 | Coming soon |
 
 ## Working on the book
 

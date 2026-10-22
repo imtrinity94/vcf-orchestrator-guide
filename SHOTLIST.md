@@ -127,3 +127,24 @@ Lab: VCF 9.1, Orchestrator 9.1.1. Save PNGs at roughly 1400 px wide, crop to the
 | 5.20 | `ch05/fig-5-20.png` | Run of `receiveVmFacts` with `mq01`: result array of two `Properties`; beside it, RabbitMQ management UI for `vcfguide.vm-facts` with one message in and one out | — |
 | 5.21 | `ch05/fig-5-21.png` | Run dialog of **Add an Active Directory server**: `dc01.vmw.lab`, `636`, `DC=vmw,DC=lab`, **Use SSL** = **Yes**, `@vmw.lab`; shared-session and **Alternative hosts** tabs visible | Add an Active Directory server (Java client) |
 | 5.22 | `ch05/fig-5-22.png` | Run of **Create lab user** for `jdoe`, **Logs** tab with *Created jdoe (Jane Doe) in VCF Guide and added it to vcfguide-users*; **Variables** tab with `user` set; password hidden | — |
+
+## Chapter 6
+
+| Figure | File | What to capture | Replaces (old cookbook) |
+|---|---|---|---|
+| 6.1 | `ch06/fig-6-1.png` | **Version History** tab of **Report powered-on VMs** on `vco01`: entries `1.0.0` and `1.1.0` with user and time; **Diff against**, **Restore**, **Diff Visually** visible | Java client "Show version history" dialog |
+| 6.2 | `ch06/fig-6-2.png` | Text comparison of `1.0.0` against the current version: `version`, `description`, and the three changed script lines highlighted | "Diff Against Current" window |
+| 6.3 | `ch06/fig-6-3.png` | **Diff Visually** for **Report powered-on VMs**, `1.0.0` beside `1.1.0`, changes marked, **Use Version** visible | — |
+| 6.4 | `ch06/fig-6-4.png` | **Deleted Items** with **Report powered-on VMs** listed (type, deletion time), selected, restore button visible | — |
+| 6.5 | `ch06/fig-6-5.png` | **Assets > Packages**, `com.vcfguide.chapter6`, **Content** tab: workflow, action `countPoweredOnVms`, configuration element `vcfguide-ch6-settings`, type and version columns | Java client package Contents tab |
+| 6.6 | `ch06/fig-6-6.png` | Export dialog for `com.vcfguide.chapter6`: configuration values on, SecureString values and global tags off, **View contents** / **Add to package** / **Edit contents** on | Java client export package dialog |
+| 6.7 | `ch06/fig-6-7.png` | Import dialog on `auto.vmw.lab`, **General** tab: name, description, 3 items, `vco01` signing certificate and the trust prompt | Java client import package certificate dialog |
+| 6.8 | `ch06/fig-6-8.png` | Import dialog on `auto.vmw.lab`, **Package elements** tab: workflow `1.2.0` (server `1.1.0`) selected, action and configuration element not selected; **Import Configuration Attribute Values** cleared | Java client import package element list |
+| 6.9 | `ch06/fig-6-9.png` | **Administration > Git Repositories > Add Repository** on `vco01`: HTTPS URL of `vcfguide-content`, user name, token hidden, **Validate** succeeded, **Name**, **Make active repository**, branch `develop` | — |
+| 6.10 | `ch06/fig-6-10.png` | **Administration > Git Repositories** list: `vcfguide-content`, branch `develop`, status **Active** | — |
+| 6.11 | `ch06/fig-6-11.png` | **Administration > Git History**, **Push** dialog: title `Chapter 6 example content`, description, the three objects selected | — |
+| 6.12 | `ch06/fig-6-12.png` | GitHub, `vcfguide-content` on `develop`: the pushed commit and the folder tree, opened to the file of **Report powered-on VMs** | — |
+| 6.13 | `ch06/fig-6-13.png` | Diagram (to be drawn): `vco01` (development) to `auto.vmw.lab` (production); top route package export → `releases/` → import without values; bottom route push `develop` → pull request → `main` → pull; values and secrets set on each side | — |
+| 6.14 | `ch06/fig-6-14.png` | Terminal running `bash promote-package.sh`: *Exported …* line, JSON import result, `HTTP 202`; the `releases` folder with two dated files | — |
+| 6.15 | `ch06/fig-6-15.png` | GitHub pull request `develop` → `main`, **Files changed** with the changed lines of **Report powered-on VMs**, approving review | — |
+| 6.16 | `ch06/fig-6-16.png` | **Administration > Git History** on `auto.vmw.lab`, repository `vcfguide-content` on `main`, merge commit at the top | — |

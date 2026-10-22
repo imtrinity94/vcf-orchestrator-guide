@@ -1,0 +1,166 @@
+---
+title: Promoting content from development to production
+description: Recipe 6.4 — move tested content from a development Orchestrator to production, once as a package through the REST API and once through Git branches and a pull request, without carrying development's values and secrets along.
+sidebar:
+  label: 6.4 Promoting content
+  order: 4
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+Recipes 6.2 and 6.3 moved content by hand. That's fine once. When a team changes workflows every week, promotion needs to be a routine: the same steps every time, a record of what went where, and no way for development's settings to leak into production. There are two good routes, and they suit different teams:
+
+- **Packages through the REST API.** A script exports a package from development and imports it into production. Production keeps its own configuration values. Every release is a file you can archive.
+- **Git branches.** Development follows the branch `develop`, production follows `main`, and a pull request in GitHub is the gate between them. Every change is reviewed before production pulls it.
+
+This recipe does both with the chapter's example content, from `vco01.vmw.lab` to the Orchestrator embedded in VCF Automation at `auto.vmw.lab`, which stands in for production in the lab.
+
+<Recipe type="ready">
+
+- The package `com.vcfguide.chapter6` on `vco01`, imported once on `auto.vmw.lab` (recipe 6.2), and the configuration element `vcfguide-ch6-settings` there with its own values.
+- For the package route: a Linux or macOS shell with `curl`, a bearer token for each Orchestrator, and the CA certificate that signed both servers' TLS certificates, saved as `vmw-lab-ca.pem`. Chapter 7 shows how to get a token.
+- For the Git route: `vco01` connected to the `develop` branch of `vcfguide-content` (recipe 6.3), and a second token for `auto.vmw.lab` with the same access to that repository.
+
+</Recipe>
+
+<Recipe type="how">
+
+<Figure n="6.13" caption="Two routes from development to production."
+  capture="Diagram, to be drawn: <code>vco01.vmw.lab</code> (development) on the left, the embedded Orchestrator at <code>auto.vmw.lab</code> (production) on the right. Top route: export <code>com.vcfguide.chapter6.package</code> → archive folder → import without values. Bottom route: push to <code>develop</code> → pull request → merge to <code>main</code> → pull on production. Configuration values and secrets set on each side, crossing neither route." />
+
+**Route 1: a package through the REST API**
+
+1. On `vco01`, make the change you want to promote, raise the version of every object you changed, and save the package `com.vcfguide.chapter6` so it holds the new versions (recipe 6.2).
+2. Save this script as `promote-package.sh`. It exports the package without values, secrets, or tags, keeps a dated copy, and imports it into production without values or tags:
+
+```bash title="promote-package.sh"
+#!/usr/bin/env bash
+# Promotes one Orchestrator package from development to production.
+# SRC_TOKEN and DST_TOKEN are bearer tokens for the two servers (Chapter 7).
+set -euo pipefail
+
+PACKAGE="com.vcfguide.chapter6"
+SRC="https://vco01.vmw.lab/vco/api"
+DST="https://auto.vmw.lab/vco/api"
+CACERT="vmw-lab-ca.pem"
+FILE="$PACKAGE.package"
+
+# Export: no configuration values, no SecureString values, no global tags
+curl --fail --silent --show-error --cacert "$CACERT" \
+  -H "Authorization: Bearer $SRC_TOKEN" \
+  -H "Accept: application/zip" \
+  -o "$FILE" \
+  "$SRC/packages/$PACKAGE?exportConfigurationAttributeValues=false&exportConfigSecureStringAttributeValues=false&exportGlobalTags=false"
+echo "Exported $FILE ($(wc -c < "$FILE") bytes)"
+
+# Keep every release
+mkdir -p releases
+cp "$FILE" "releases/$PACKAGE-$(date +%Y%m%d-%H%M%S).package"
+
+# Import: keep production's values and tags; don't replace newer elements
+curl --silent --show-error --cacert "$CACERT" \
+  -H "Authorization: Bearer $DST_TOKEN" \
+  -F "file=@$FILE" \
+  -w "\nHTTP %{http_code}\n" \
+  "$DST/packages?overwrite=false&importConfigurationAttributeValues=false&importConfigSecureStringAttributeValues=false&tagImportMode=DoNotImport"
+```
+
+3. Set the two tokens and run it:
+
+```bash
+export SRC_TOKEN='…' DST_TOKEN='…'
+bash promote-package.sh
+```
+
+4. Read the last line. `HTTP 202` means the import was accepted. The response body above it lists any elements that failed in an `errors` array. `HTTP 409` means one or more elements in the package are older than the ones in production, and nothing was imported: someone changed production directly, or you forgot to raise a version number.
+5. On `auto.vmw.lab`, open **Report powered-on VMs**. Its version is the one you promoted, and `vcfguide-ch6-settings` still has production's values.
+
+<Figure n="6.14" caption="A promotion run from the shell."
+  capture="Terminal running <code>bash promote-package.sh</code>: the <i>Exported com.vcfguide.chapter6.package (… bytes)</i> line, the JSON import result, and <code>HTTP 202</code>; beside it, the <code>releases</code> folder with two dated package files." />
+
+<Verify>Run <code>promote-package.sh</code> against <code>vco01</code> and <code>auto.vmw.lab</code> on 9.1.1 and record: that <code>/vco/api</code> is the base path on both; the JSON body of a <code>202</code> and of a <code>409</code>; what <code>overwrite=true</code> does (the 9.1 API reference doesn't describe it); and whether an import through the API needs production to trust <code>vco01</code>'s signing certificate first, as the client asks in recipe 6.2.</Verify>
+
+**Route 2: Git branches and a pull request**
+
+6. On `auto.vmw.lab`, open the **Orchestrate** tab, go to **Administration** > **Git Repositories**, and add `vcfguide-content` as in recipe 6.3, with its own token. Make it active on the branch `main`, not `develop`.
+7. Before production pulls anything, write down every `SecureString` value it holds, such as `apiToken` in `vcfguide-ch6-settings`. Connecting a repository replays it into the server, and secrets come back empty (recipe 6.3).
+8. On `vco01`, change **Report powered-on VMs**, raise its version, save it, and push it to `develop` from **Git History**.
+9. In GitHub, open a pull request from `develop` to `main`, titled with what changed. The **Files changed** tab shows exactly which objects changed, line by line. Ask a colleague to review it, then merge it.
+10. On `auto.vmw.lab`, go to **Administration** > **Git History** and click **Pull**. The merged change arrives.
+11. Re-enter any `SecureString` values that came back empty, and check the values of `vcfguide-ch6-settings` (see How it works). Run **Report powered-on VMs** on production.
+
+<Figure n="6.15" caption="A pull request is the gate to production."
+  capture="GitHub pull request from <code>develop</code> into <code>main</code> on <code>vcfguide-content</code>, <b>Files changed</b> tab showing the changed lines of <b>Report powered-on VMs</b> (version and script), with an approving review." />
+
+<Figure n="6.16" caption="Production after the pull."
+  capture="<b>Administration > Git History</b> on the embedded Orchestrator at <code>auto.vmw.lab</code>, active repository <code>vcfguide-content</code> on <code>main</code>, with the merge commit from the pull request at the top." />
+
+<Verify>Check that the embedded Orchestrator in VCF Automation 9.1 offers <b>Administration</b> > <b>Git Repositories</b> and <b>Git History</b> like the standalone appliance, and record which VCF Automation role is needed to use them.</Verify>
+
+</Recipe>
+
+<Recipe type="works">
+
+**What promotion carries, and what it doesn't.** Both routes move content: workflows, actions, policies, configuration elements, resource elements. Neither moves what that content needs from the server around it. Before the first promotion, make production match development in these, and keep them matched:
+
+| Needs to match | How | Recipe |
+|---|---|---|
+| Plug-ins and their versions | Install the same plug-in files | 5.1 |
+| Plug-in inventory: vCenters, REST hosts, databases, brokers | Run the same configuration workflows, with the same names | 1.9, 5.2–5.8 |
+| Environments for Python, Node.js, and PowerShell actions | Create them with the same names and package versions | 4.3–4.5 |
+| Certificates the workflows trust | Import them into production's trust store | 2.2 |
+| Configuration values and secrets | Set them on production, once | 4.7 |
+
+**The package route keeps production's values.** The script exports with `exportConfigurationAttributeValues=false` and imports with `importConfigurationAttributeValues=false`, so values never travel in either direction. A new configuration element arrives with its variables but no values, and you fill them in once on production. After that, each promotion updates the element's variables, if they changed, and leaves its values alone. `overwrite=false` makes the import refuse a package that would replace newer objects, so an emergency fix made directly on production isn't lost: you get a `409` and have to bring the fix back into development first.
+
+**The Git route shares everything but secrets.** In Git, a configuration element is one file, values and all, and both servers pull the same file. Only `SecureString` values stay on each server, because Orchestrator writes `__NULL__` in their place (KB 446735). And a pull replaces local changes that haven't been pushed (KB 453014), so a value you set on production by hand can be overwritten by the next pull of that element. Plan for it in one of these ways:
+
+- keep values that differ between environments as `SecureString` variables, which Git never carries, and set them once on each server;
+- keep them out of the repository's configuration elements and set them on production after each pull, through the REST API (recipe 4.7, There's more);
+- or use the package route for configuration elements and the Git route only for workflows and actions.
+
+<Verify>Check on 9.1.1 what a pull does to a configuration element value that was changed on production and not pushed: whether it's overwritten, kept, or reported as a conflict. The guidance above follows KB 453014, which says pull overwrites unpushed local changes.</Verify>
+
+**Production pulls, it never pushes.** In the Git route, `auto.vmw.lab` only ever pulls. If someone edits a workflow on production, that change sits in production's **Git History** as an unpushed change set, and the next pull can overwrite it or stop on a conflict. Give developers no developer role on production, so changes can only arrive through `main`.
+
+**Why not one branch?** If both servers followed `develop`, every push from development would reach production at its next pull, reviewed or not. Two branches put a pull request between them, and GitHub's branch protection can require a review before anything merges into `main`.
+
+**Which route?** Packages suit teams that release in batches, need a file per release for change control, or promote into servers that can't reach a Git server. Git suits teams that already review code in pull requests and change workflows often. Many teams use Git between developers and packages for the last step into production.
+
+<ThenNow
+  then="Export a package in the Java client, copy it to production, and import it there by hand, or script it with the vRO 7 REST API's package calls."
+  now="Script the same export and import with the 9.1 REST API's packages service, or let two Orchestrators follow two Git branches with a pull request between them." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**Check before you import.** The 9.1 packages service also has `POST /vco/api/packages/import-details`, which reads a package file and reports what an import would do, without importing anything. Call it in the script before the import, and stop if it reports an element that would go backwards.
+
+<Verify>Call <code>POST /vco/api/packages/import-details</code> with <code>com.vcfguide.chapter6.package</code> on 9.1.1 and record its response fields, so the script can check them.</Verify>
+
+**Promote from a pipeline.** The script needs nothing but `curl`, so it runs as a job in GitHub Actions, GitLab CI, or Jenkins. Keep the two tokens in the pipeline's secret store, run the job by hand or on a tag, and keep the dated packages as the job's artifacts instead of in a local folder.
+
+**Test before production.** A third server, for testing, fits either route: a second import in the script, or a `test` branch between `develop` and `main`. The rule is the same: content only moves forward, and nobody edits a server further along the line.
+
+**Rolling back.** With packages, import the previous release's file from `releases/`. Its versions are older than production's, so the import needs `overwrite=true`, or the older elements selected by hand in the client (recipe 6.2). With Git, revert the merge in GitHub, merge the revert into `main`, and pull. Don't use **Reset to this** on production. It also removes content added since that commit, and moves production off the branch's latest commit.
+
+**Promoting into VCF Automation.** Workflows that VCF Automation calls, for example from extensibility subscriptions or catalog items, are found by their ID. A package or a pull keeps the ID, so subscriptions on production keep pointing at the right workflow after a promotion. Recreating a workflow by hand gives it a new ID and breaks them. Chapter 8 covers the VCF Automation side.
+
+<Verify>Confirm on VCF Automation 9.1 that a subscription or catalog item bound to a workflow on the embedded Orchestrator still works after the workflow is updated by a package import.</Verify>
+
+</Recipe>
+
+<Recipe type="see">
+
+- [6.2 Packages: create, export, import](../02-packages/), for the import options the script sets.
+- [6.3 Git integration and branching](../03-git-integration/), for connecting a server to a branch, and secrets in Git.
+- [4.7 Working with configuration elements in code](../../../chapter-4/recipes/07-configuration-elements/), for one element per target and setting values from outside.
+- Broadcom developer documentation (VCF Operations Orchestrator API 9.1): [Packages service](https://developer.broadcom.com/xapis/vcf-operations-orchestrator-api/9.1/packages-service/), [Export Package](https://developer.broadcom.com/xapis/vcf-operations-orchestrator-api/9.1/packages/packageName/get/), [Import Package](https://developer.broadcom.com/xapis/vcf-operations-orchestrator-api/latest/content/packages/post/), and [Repository (Version Control) Service](https://developer.broadcom.com/xapis/vcf-operations-orchestrator-api/9.1/repository(version-control)-service/).
+- Broadcom TechDocs (VCF 9.0): [Import a Package](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/managing-packages-in-vro/import-a-package-in-the-operations-client.html) and [Key features of the VCF Operations orchestrator platform](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/key-features-of-the-vcf-operations-orchestrator-platform.html), on managing workflow development across several instances with Git.
+- Broadcom KB [446735](https://knowledge.broadcom.com/external/article/446735) (secure strings after Git synchronization) and [453014](https://knowledge.broadcom.com/external/article/453014/selective-workflow-restoration-from-git.html) (pull and unpushed local changes).
+- GitHub Docs: [About protected branches](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches).
+
+</Recipe>
