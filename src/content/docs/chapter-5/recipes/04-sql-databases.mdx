@@ -1,0 +1,195 @@
+---
+title: SQL databases
+description: Recipe 5.4 — register a PostgreSQL database with the SQL plug-in, run queries without code, write rows from a workflow with safe quoting, read them back as properties, and generate CRUD workflows for a table.
+sidebar:
+  label: 5.4 SQL databases
+  order: 4
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+Workflows often need somewhere to keep records that outlive a run: what was built, for whom, and when; a list of names already handed out; numbers for a monthly report. Orchestrator's own database isn't the place for them. A database of your own is, and the SQL plug-in connects workflows to it over JDBC. It works with PostgreSQL, Microsoft SQL Server, Oracle, and MySQL.
+
+In this recipe you register a small PostgreSQL database, check it with a query that needs no code, and then write a workflow that records the facts of a few VMs, one row each, and an action that reads the latest rows back. On the way you'll see why building SQL from strings needs care.
+
+<Recipe type="ready">
+
+- A PostgreSQL server that Orchestrator can reach on TCP 5432. This recipe uses `db01.vmw.lab`, with a database `vcfguide` owned by the user `vcfguide`.
+- The action `com.vcfguide.chapter4/getVmFacts` from recipe 4.2, and the vCenter `vc01.vmw.lab` registered with the vCenter plug-in.
+- A login with administrator rights, the action module `com.vcfguide.chapter5`, and the workflow folder **VCF Orchestrator Guide/Chapter 5**.
+
+</Recipe>
+
+<Recipe type="how">
+
+**Prepare the database**
+
+1. On the PostgreSQL server, as the user `vcfguide`, create the table the workflow writes to:
+
+```sql title="psql -h db01.vmw.lab -U vcfguide vcfguide"
+CREATE TABLE vm_facts (
+    id          serial PRIMARY KEY,
+    vm_name     varchar(255) NOT NULL,
+    power_state varchar(32)  NOT NULL,
+    cpus        integer      NOT NULL,
+    memory_mb   integer      NOT NULL,
+    guest_os    varchar(255),
+    recorded_at timestamp    NOT NULL DEFAULT now()
+);
+```
+
+2. Check that the server accepts connections from `vco01.vmw.lab`: its `pg_hba.conf` needs a line for the appliance's address, or its network, with the `scram-sha-256` method.
+
+**Register the database**
+
+3. In the Orchestrator Client, go to **Library** > **Workflows**, search with the tags `sql` and `configuration`, and run **Add a database**.
+4. Enter the **Name** `db01-vcfguide`, choose the database type **PostgreSQL**, and enter the **Connection URL** `jdbc:postgresql://db01.vmw.lab:5432/vcfguide`.
+5. On the **User credentials** tab, choose **Shared Session** and enter the user `vcfguide` and its password. Click **Run**.
+6. Run **Add tables to a database**, select `db01-vcfguide`, select the table `vm_facts`, and click **Run**.
+7. Go to **Administration** > **Inventory** > **SQL**. The database is listed, with `vm_facts` under it.
+
+<Figure n="5.10" caption="Registering a PostgreSQL database with the SQL plug-in."
+  capture="Run dialog of <b>Add a database</b>: <b>Name</b> <code>db01-vcfguide</code>, database type <b>PostgreSQL</b>, <b>Connection URL</b> <code>jdbc:postgresql://db01.vmw.lab:5432/vcfguide</code>; the <b>User credentials</b> tab visible." />
+
+<Verify>Check on 9.1.1 that the PostgreSQL JDBC driver is included, so <b>Add a database</b> works without adding a driver, the label of the database type choice, and the name of the inventory entry (<b>SQL</b> or <b>SQL Plug-in</b>).</Verify>
+
+**Run a query without code**
+
+8. Search with the tag `sql` and run **Read a custom query from a database**. Select `db01-vcfguide`, enter the query `SELECT count(*) AS row_count FROM vm_facts`, and click **Run**.
+9. The run's result is an array with one element, a set of properties with `row_count` = `0`.
+
+**Write rows from a workflow**
+
+10. In **Library** > **Actions**, create two actions in `com.vcfguide.chapter5`. The first, `getDatabase`, has the input `name` of type `string` and the **Return type** `SQL:Database`:
+
+```javascript title="com.vcfguide.chapter5/getDatabase"
+// Returns the database registered with the SQL plug-in under this name.
+var databases = SQLDatabaseManager.getDatabases();
+for (var i = 0; i < databases.length; i++) {
+    if (databases[i].name === name) {
+        return databases[i];
+    }
+}
+throw "getDatabase: no database named " + name + " in the SQL plug-in";
+```
+
+11. The second, `sqlText`, has the input `value` of type `Any` and the **Return type** `string`. It turns a value into a safe SQL literal:
+
+```javascript title="com.vcfguide.chapter5/sqlText"
+// Returns value as an SQL string literal, with any single quote doubled,
+// or NULL. Use it for every value you put into an SQL statement.
+if (value === null || value === undefined) {
+    return "NULL";
+}
+return "'" + String(value).replace(/'/g, "''") + "'";
+```
+
+12. Create the workflow **Record VM facts** in **VCF Orchestrator Guide/Chapter 5**, with the inputs `vms` of type `Array/VC:VirtualMachine` and `databaseName` of type `string`, default `db01-vcfguide`, and the output `rowsWritten` of type `number`. Add one scriptable task, **Write rows**, with this script:
+
+```javascript title="Record VM facts / Write rows"
+var chapter4 = System.getModule("com.vcfguide.chapter4");
+var chapter5 = System.getModule("com.vcfguide.chapter5");
+var database = chapter5.getDatabase(databaseName);
+
+rowsWritten = 0;
+for (var i = 0; i < vms.length; i++) {
+    var facts = chapter4.getVmFacts(vms[i]);
+    var sql = "INSERT INTO vm_facts (vm_name, power_state, cpus, memory_mb, guest_os) VALUES ("
+        + chapter5.sqlText(facts.get("name")) + ", "
+        + chapter5.sqlText(facts.get("powerState")) + ", "
+        + parseInt(facts.get("cpus"), 10) + ", "
+        + parseInt(facts.get("memoryMb"), 10) + ", "
+        + chapter5.sqlText(facts.get("guestOs")) + ")";
+    rowsWritten += database.executeCustomQuery(sql);
+}
+System.log(rowsWritten + " rows written to " + databaseName);
+```
+
+13. Run the workflow with three VMs from `vc01.vmw.lab`. The log says `3 rows written to db01-vcfguide`. Run the query from step 8 again: `row_count` is now `3`.
+
+<Figure n="5.11" caption="A workflow that writes one row per VM."
+  capture="Run of <b>Record VM facts</b> with three VMs, <b>Logs</b> tab with <i>3 rows written to db01-vcfguide</i>, <b>Variables</b> tab with <code>rowsWritten</code> = <code>3</code>." />
+
+<Verify>On 9.1.1, confirm the scripting type name of a database (<code>SQL:Database</code>, or <code>SQLDatabase</code>) for the action's return type, that <code>SQLDatabaseManager.getDatabases()</code> lists the databases, that <code>executeCustomQuery</code> returns the number of rows changed as a number, and the type name of a table (<code>SQL:Table</code>).</Verify>
+
+**Read rows back**
+
+14. Create the action `latestVmFacts`, with the inputs `databaseName` of type `string` and `maxRows` of type `number`, and the **Return type** `Array/string`:
+
+```javascript title="com.vcfguide.chapter5/latestVmFacts"
+// Returns the most recent rows of vm_facts, newest first, one line each.
+var database = System.getModule("com.vcfguide.chapter5").getDatabase(databaseName);
+var limit = parseInt(maxRows, 10);
+if (isNaN(limit) || limit < 1) {
+    limit = 10;
+}
+var rows = database.readCustomQuery(
+    "SELECT vm_name, power_state, cpus, memory_mb, recorded_at FROM vm_facts "
+    + "ORDER BY recorded_at DESC, id DESC LIMIT " + limit);
+
+var lines = [];
+for (var i = 0; i < rows.length; i++) {
+    var row = rows[i];
+    lines.push(row.get("vm_name") + ": " + row.get("power_state") + ", "
+        + row.get("cpus") + " vCPU, " + row.get("memory_mb") + " MB at "
+        + row.get("recorded_at"));
+}
+return lines;
+```
+
+15. Run it with `db01-vcfguide` and `5`. You get the three rows from step 13, newest first.
+
+<Figure n="5.12" caption="Rows read back from the database as properties."
+  capture="Run of action <code>com.vcfguide.chapter5/latestVmFacts</code> with <code>db01-vcfguide</code> and <code>5</code>: result array with three lines, VM name, power state, vCPUs, memory and time." />
+
+<Verify>Check on 9.1.1 how <code>readCustomQuery</code> returns each column: whether the keys are the column names in lower case, as PostgreSQL reports them, and what type a <code>timestamp</code> and an <code>integer</code> column arrive as in JavaScript.</Verify>
+
+</Recipe>
+
+<Recipe type="works">
+
+**Add a database** stores a connection in Orchestrator's database: a name, a JDBC connection URL, a database type that picks the driver, and the credentials. Every workflow and script then uses that connection by name, so the password is entered once, by an administrator, and never appears in a workflow. With **Shared Session**, all runs use that one account. With **Session Per User**, the plug-in logs in as the Orchestrator user who runs the workflow, which only works if the database knows that user by the same plain name.
+
+**Two calls do most of the work.** `executeCustomQuery(sql)` runs a statement that changes something, such as `INSERT`, `UPDATE`, or `DELETE`, and returns how many rows it changed. `readCustomQuery(sql)` runs a query that returns rows and gives you an array of `Properties`, one per row, keyed by column name. The built-in workflows **Execute a custom query on a database** and **Read a custom query from a database** are the same two calls with a form around them.
+
+**Why `sqlText`?** Both calls take one string of SQL, and the database can't tell your SQL from the values you pasted into it. A VM called `it's-a-test` breaks a statement built with plain `+`, and a value such as `x'); DROP TABLE vm_facts; --` from a form turns into a second statement. `sqlText` doubles every single quote, which is how standard SQL writes a quote inside a string, and the numbers go through `parseInt`, so nothing but digits reaches the statement. Treat every value that comes from outside the script this way, including names that come from vCenter.
+
+**Tables in the inventory.** **Add tables to a database** makes a table an inventory object of type `SQL:Table`. You don't need it for custom queries, but the generated workflows and the record methods below work on tables, not on SQL text.
+
+<ThenNow
+  then="Run <b>Add a database</b> from the Java client, and browse its tables in the Java client's inventory tree."
+  now="Run <b>Add a database</b> in the browser client; PostgreSQL, SQL Server (jTDS), Oracle, and MySQL types are listed. The Microsoft JDBC driver for SQL Server is a separate download you add yourself." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**Generate CRUD workflows.** Run **Generate CRUD workflows for a table**, select `vm_facts`, pick the folder **VCF Orchestrator Guide/Chapter 5**, and choose not to overwrite existing workflows. You get workflows to create, read, update, and delete rows, with an input for each column. On the **Select read-only columns** tab, mark `id` and `recorded_at`, which the database fills in itself.
+
+**Writing records without SQL text.** A table object has methods that take the values as properties, so no quoting is needed. `table.createRecord(values, …)` inserts a row from a `Properties` object of column names and values, and `readRecords`, `updateRecord`, and `deleteRecords` do the rest. Get the table from `database.getTables()`.
+
+<Verify>Check the arguments of <code>SQLTable.createRecord</code>, <code>readRecords</code>, and <code>deleteRecords</code> in the API Explorer on 9.1.1 (each takes a <code>Properties</code> object and a boolean in older releases), what the boolean does, and the name of the method that lists a database's tables.</Verify>
+
+**Microsoft SQL Server.** Two database types exist for SQL Server. The **jTDS** type is included and uses URLs like `jdbc:jtds:sqlserver://sql01.vmw.lab:1433/vcfguide`. The **Microsoft JDBC** type uses `jdbc:sqlserver://…` and Microsoft's own driver, which you add to Orchestrator first; it's the one to choose for Always On availability groups with `multiSubnetFailover=true`, which jTDS doesn't support (KB 381859). For a TLS connection to any database, import its certificate with **Import a certificate from URL** before **Add a database**.
+
+<Verify>Find out how to add a JDBC driver on 9.1.1. Broadcom's 8.x procedure copied the JAR to <code>/data/vco/var/run/vco/plugins/SQL/lib/</code> on every node and set the system property <code>o11n.plugin.SQL.classpath</code> in Control Center, which 9.x doesn't have. Check whether <code>vracli vro properties set</code> (recipe 2.8) replaces that step, and whether the 9.0 page <i>Adding a JDBC connector for the VCF Operations orchestrator SQL plug-in</i> describes another way.</Verify>
+
+**One statement per call.** Each `executeCustomQuery` and `readCustomQuery` sends one statement and waits for the answer. Ten inserts in a loop are ten round trips to the database, which is fine for tens of rows. For thousands, build one multi-row `INSERT … VALUES (…), (…), …` statement, or let the database load a file.
+
+**Test the URL first.** The sample workflow **Test a JDBC connection** tries a connection URL, user, and password without registering anything. It's the quickest way to find out whether a failure is the URL, the network, or the account.
+
+</Recipe>
+
+<Recipe type="see">
+
+- [4.2 Writing and reusing actions](../../../chapter-4/recipes/02-actions/), for `getVmFacts`.
+- [3.6 Building input forms](../../../chapter-3/recipes/06-input-forms/), for validating values before they get anywhere near SQL.
+- [5.1 How plug-ins work](../01-how-plug-ins-work/), for configuration workflows and the inventory.
+- Broadcom TechDocs (VCF 9.0): [Using the SQL plug-in](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/vcf-ochestrator-plugins-overview/using-the-sql-plug-in.html), [Configuring the SQL plug-in](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/vcf-ochestrator-plugins-overview/using-the-sql-plug-in/configuring-the-sql-plug-in.html), [Add a Database](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/vcf-ochestrator-plugins-overview/using-the-sql-plug-in/configuring-the-sql-plug-in/add-a-database.html), [Running SQL Operations](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/vcf-ochestrator-plugins-overview/using-the-sql-plug-in/using-the-sql-plug-in-standard-workflows.html), and [Adding a JDBC connector for the VCF Operations orchestrator SQL plug-in](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/vcf-ochestrator-plugins-overview/using-the-sql-plug-in/adding-a-mysql-connector-jar-file-to-vrealize-orchestrator.html).
+- Broadcom TechDocs (Aria Automation 8.14 and 8.18): [Generate CRUD workflows for a table](https://techdocs.broadcom.com/us/en/vmware-cis/aria/aria-automation/8-14/vro-using-plug-ins-8-14/using-the-sql-plug-in/using-the-sql-plug-in-standard-workflows/generate-crud-workflows-for-a-table.html) and [Running the SQL sample workflows](https://techdocs.broadcom.com/us/en/vmware-cis/aria/aria-automation/8-18/vro-using-plug-ins-8-18/using-the-sql-plug-in/running-the-sql-sample-workflows.html).
+- Broadcom KB [381859](https://knowledge.broadcom.com/external/article/381859/connecting-to-ms-sql-db-in-aria-orchestr.html): connecting to SQL Server with the Microsoft JDBC driver.
+- PostgreSQL documentation: [String constants](https://www.postgresql.org/docs/current/sql-syntax-lexical.html#SQL-SYNTAX-STRINGS), on doubling single quotes.
+
+</Recipe>

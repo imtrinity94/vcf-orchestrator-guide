@@ -1,0 +1,175 @@
+---
+title: Working with configuration elements in code
+description: Recipe 4.7 — keep settings and credentials out of your code in configuration elements, bind them to workflow variables, read them by name from scripts, and write values back.
+sidebar:
+  label: 4.7 Configuration elements in code
+  order: 7
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+Sooner or later every script grows a line like `var maxAgeDays = 7;` or, worse, a password in quotes. The value is right today, on this Orchestrator. It's wrong on the test server, it changes next quarter, and the password shouldn't be in a script at all. A **configuration element** is where those values belong: a named set of typed variables, stored on the Orchestrator server, that any workflow, action, or policy can use.
+
+In this recipe you create two configuration elements, one for general settings and one holding the account for `vc01.vmw.lab`. You bind a setting to a workflow variable without any code, read the account by name from a script, pass it to the PowerCLI action from recipe 4.5, and write the time of the last report back into the settings.
+
+<Recipe type="ready">
+
+- The action `com.vcfguide.chapter4/getSnapshotReport` from recipe 4.5, and the read-only vCenter account it uses, `svc-vcfguide-ro@vsphere.local`.
+- The workflow folder **VCF Orchestrator Guide/Chapter 4**.
+- A login that can create configuration elements and workflows, such as **Workflow designer** or administrator.
+
+</Recipe>
+
+<Recipe type="how">
+
+**Create a settings element**
+
+1. Go to **Assets** > **Configurations**. Create the folder **VCF Orchestrator Guide**, and inside it **Chapter 4**, then select **Chapter 4** and click **New Configuration**.
+2. Enter the name `vcfguide-settings` and the description `General settings for the Chapter 4 examples.`
+3. On the **Variables** tab, click **New** for each of these, and click **Save** after each one:
+
+| Name | Type | Value |
+|---|---|---|
+| `snapshotMaxAgeDays` | `number` | `7` |
+| `lastSnapshotReport` | `Date` | (empty) |
+| `verbose` | `boolean` | `false` |
+
+4. Click **Save** to save the element.
+
+**Create an element for the vCenter account**
+
+5. Inside **Chapter 4**, create the folder **vCenters**. In it, create a configuration element named `vc01.vmw.lab`, after the vCenter it describes.
+6. On its **Variables** tab, add `user` of type `string` with the value `svc-vcfguide-ro@vsphere.local`, and `password` of type `SecureString` with the account's password. Save the element.
+
+<Figure n="4.19" caption="A configuration element that holds a vCenter account, in its own folder."
+  capture="<b>Assets</b> > <b>Configurations</b>, folder tree <b>VCF Orchestrator Guide</b> > <b>Chapter 4</b> > <b>vCenters</b> open on the left, element <code>vc01.vmw.lab</code> selected, <b>Variables</b> tab with <code>user</code> (<code>string</code>) and <code>password</code> (<code>SecureString</code>, value hidden)." />
+
+<Verify>On 9.1.1, check how folders are created under <b>Assets</b> > <b>Configurations</b> (a <b>New Folder</b> button, or a folder field on the element's <b>General</b> tab), the labels <b>New Configuration</b>, <b>Variables</b>, and <b>New</b>, and whether each variable has its own <b>Save</b> button.</Verify>
+
+**Bind a setting to a workflow variable**
+
+7. Create the workflow **Report old snapshots** in the folder **VCF Orchestrator Guide/Chapter 4**. Give it one input, `vcenterName` of type `string`, with the default value `vc01.vmw.lab`, and one output, `report` of type `string`.
+8. On the **Variables** tab, add the variable `maxAgeDays` of type `number`. Instead of typing a value, choose **Bind to configuration**, then pick the element `vcfguide-settings` and its variable `snapshotMaxAgeDays`.
+
+<Figure n="4.20" caption="A workflow variable that takes its value from a configuration element."
+  capture="<b>Variables</b> tab of workflow <b>Report old snapshots</b>, variable <code>maxAgeDays</code> (<code>number</code>) being edited: <b>Bind to configuration</b> selected, configuration <code>vcfguide-settings</code>, variable <code>snapshotMaxAgeDays</code>." />
+
+<Verify>Find the exact control on 9.1.1 for binding a workflow variable to a configuration element (Broadcom's 8.18 documentation calls it <b>Bind to configuration</b>), and how the bound variable shows on the <b>Variables</b> tab afterwards.</Verify>
+
+**Read values by name from a script**
+
+9. A binding is fixed when you design the workflow. To choose the element while the workflow runs, as here, where the vCenter's name picks the account, read it in a script. In **Library** > **Actions**, create the action `getConfigElement` in `com.vcfguide.chapter4`, with the inputs `categoryPath` and `elementName` of type `string`, and the **Return type** `ConfigurationElement`:
+
+```javascript title="com.vcfguide.chapter4/getConfigElement"
+// Returns the configuration element elementName in the folder categoryPath,
+// for example "VCF Orchestrator Guide/Chapter 4". Fails if it isn't there.
+var category = Server.getConfigurationElementCategoryWithPath(categoryPath);
+if (!category) {
+    throw "getConfigElement: no configuration folder " + categoryPath;
+}
+var elements = category.configurationElements || [];
+for (var i = 0; i < elements.length; i++) {
+    if (elements[i].name === elementName) {
+        return elements[i];
+    }
+}
+throw "getConfigElement: no configuration element " + elementName + " in " + categoryPath;
+```
+
+10. Create the action `getConfigValue`, with the inputs `categoryPath`, `elementName`, and `key` of type `string`, and the **Return type** `Any`:
+
+```javascript title="com.vcfguide.chapter4/getConfigValue"
+// Returns the value of one variable of a configuration element.
+var element = System.getModule("com.vcfguide.chapter4").getConfigElement(categoryPath, elementName);
+var attribute = element.getAttributeWithKey(key);
+if (!attribute) {
+    throw "getConfigValue: " + elementName + " has no variable " + key;
+}
+return attribute.value;
+```
+
+**Use the values in the workflow**
+
+11. On the schema of **Report old snapshots**, add a scriptable task, **Report snapshots**. Bind its inputs to `vcenterName` and `maxAgeDays`, and its output `report` to the workflow output `report`. Enter this script:
+
+```javascript title="Report old snapshots / Report snapshots"
+var chapter4 = System.getModule("com.vcfguide.chapter4");
+var settingsFolder = "VCF Orchestrator Guide/Chapter 4";
+var vcenterFolder = settingsFolder + "/vCenters";
+
+// The vCenter's name picks the element that holds its account
+var user = chapter4.getConfigValue(vcenterFolder, vcenterName, "user");
+var password = chapter4.getConfigValue(vcenterFolder, vcenterName, "password");
+System.log("Reading snapshots on " + vcenterName + " as " + user);
+
+var result = chapter4.getSnapshotReport(vcenterName, user, password, maxAgeDays);
+report = result.get("report");
+System.log(result.get("count") + " snapshots older than " + maxAgeDays + " days");
+
+// Write the time of this report back into the settings
+var settings = chapter4.getConfigElement(settingsFolder, "vcfguide-settings");
+settings.setAttributeWithKey("lastSnapshotReport", new Date());
+```
+
+12. Save and run the workflow with the default `vcenterName`. On the run's **Variables** tab, `maxAgeDays` is `7`, taken from the binding, and `report` lists the old snapshots. The log names the user, never the password.
+13. Open `vcfguide-settings` again. `lastSnapshotReport` now holds the time of the run.
+14. Change `snapshotMaxAgeDays` to `30`, save, and run the workflow again. It now reports only snapshots older than 30 days, without any change to the workflow.
+
+<Figure n="4.21" caption="The values from the configuration elements in a run, and the value the run wrote back."
+  capture="Two panes: the run of <b>Report old snapshots</b>, <b>Variables</b> tab with <code>vcenterName</code> = <code>vc01.vmw.lab</code>, <code>maxAgeDays</code> = <code>7</code>, and <code>report</code>; and element <code>vcfguide-settings</code>, <b>Variables</b> tab, with <code>lastSnapshotReport</code> set to the run's time." />
+
+<Verify>Check on 9.1.1 that <code>setAttributeWithKey</code> on an existing variable saves the new value at once, without a separate save call, and that it keeps the type <code>Date</code>. Also check how a <code>SecureString</code> value read with <code>getAttributeWithKey</code> arrives in the script and in the PowerCLI action.</Verify>
+
+</Recipe>
+
+<Recipe type="works">
+
+A configuration element is a named list of typed variables, which the scripting API calls **attributes**, stored in Orchestrator's database. Every workflow, action, and policy on the server can use it. Configuration elements sit in folders, which the API calls **categories**. A category's path is its folder names joined with `/`, so the folder you created in step 5 is `VCF Orchestrator Guide/Chapter 4/vCenters`.
+
+There are two ways to get at the values, and they suit different jobs:
+
+- **Binding**, as in step 8, links a workflow variable to one variable of one element. You choose both when you design the workflow. The workflow shows the link, and when you put the workflow in a package, Orchestrator adds the configuration element automatically. Use it for settings that every run uses, such as `snapshotMaxAgeDays`.
+- **Scripting**, as in steps 9 to 11, finds the element by its folder and name while the run is going. `Server.getConfigurationElementCategoryWithPath` returns the category, or `null` if there's none. Its `configurationElements` property lists the elements in it, and an element's `getAttributeWithKey` returns the attribute, whose `value` holds the value. Use it when the run decides which element it needs, as with one element per vCenter. A package doesn't know about elements that a script finds by name, so add them to the package yourself (Chapter 6).
+
+`setAttributeWithKey` writes a value back. It changes the element on the server for everyone: the next run, and any run going on at the same time, sees the new value. It's meant for occasional state, like the time of the last report, not for something many runs change at once.
+
+**SecureString.** A `SecureString` value is stored encrypted and hidden in the client. Inside a script it's an ordinary string, because the script needs the real value to use it. That's why the script logs the user and never the password (recipe 4.6). Anyone who can run a script that reads the element can read the password, so protect the folder with permissions, and give the account no more rights in vCenter than the workflow needs.
+
+**Values belong to the server.** When you import a package that contains a configuration element, you can choose whether to import its values as well. Import the element without the test server's values into production, enter the production values once, and the workflows never need to change.
+
+<ThenNow
+  then="Create configuration elements in the Java client's <b>Configurations</b> view, add values on its <b>Attributes</b> tab, and link a workflow attribute to one with the link button beside its value."
+  now="Create them under <b>Assets</b> > <b>Configurations</b> in the browser client, add values on the <b>Variables</b> tab, and choose <b>Bind to configuration</b> for a workflow variable. The scripting API is the same." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**Keep the paths in one place.** The folder names in step 11 are a contract between the workflow and whoever manages the elements. If you use them in many workflows, put them in one small action that returns the path, so that renaming a folder means changing one line.
+
+**One element per target.** An element per vCenter, per NSX Manager, or per environment, with the same variable names in each, makes a script that works for all of them. Adding a vCenter means adding an element, not changing code.
+
+**Changes from many runs.** If several runs might update the same variable at once, for example a counter, two of them can read the same old value and both write old value + 1. Wrap the read and the write in a lock: `LockingSystem.lockAndWait("vcfguide-settings", workflow.id)` before, and `LockingSystem.unlock("vcfguide-settings", workflow.id)` in a `finally` block after.
+
+**Python, Node.js, and PowerShell actions can't read elements.** The configuration element API exists only in JavaScript. Read the values in a JavaScript script or with a binding, and pass them to the polyglot action as inputs, as step 11 does for the PowerCLI action.
+
+**Configuration elements, resource elements, or system properties?** Use a configuration element for typed values that workflows read. Use a resource element (Chapter 6) for a whole file, such as a template or a script. System properties (recipe 2.8) are for the server's own behaviour, not for your workflows' settings.
+
+**Changing values from outside.** The Orchestrator REST API can read and update configuration elements, so a pipeline or another tool can set values without the client. That's how you'd load the production values after importing a package without them.
+
+<Verify>Check the 9.1 REST API calls for configuration elements (<code>GET</code> and <code>PUT</code> on <code>/vco/api/configurations/&#123;id&#125;</code> in 8.x) and whether a <code>SecureString</code> value can be set through them.</Verify>
+
+</Recipe>
+
+<Recipe type="see">
+
+- [4.5 PowerShell and PowerCLI actions](../05-powershell-powercli/), for the action this workflow calls.
+- [4.6 Logging from scripts](../06-logging/), for what not to log.
+- [2.8 Setting system properties that matter](../../../chapter-2/recipes/08-system-properties/), for server settings that aren't configuration elements.
+- Broadcom TechDocs (VCF 9.0): [Managing Configuration Elements](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/managing-configuration-elements-in-vro.html).
+- VMware Docs (Aria Automation Orchestrator 8.17): [Create a configuration element](https://docs.vmware.com/en/VMware-Aria-Automation/8.17/Using-Automation-Orchestrator/GUID-F2F37F70-9F55-4D87-A3BB-F40B6D399FF8.html). Broadcom TechDocs (8.18): [Create and apply policies](https://techdocs.broadcom.com/us/en/vmware-cis/aria/aria-automation/8-18/using-the-vrealize-orchestrator-client-8-18/managing-policies-in-vro/create-and-apply-policies.html), which mentions **Bind to configuration**.
+- Christian Stankowic: [vRealize Orchestrator configuration elements in a nutshell](https://cstan.io/en/post/2017/07/vrealize-orchestrator-configuration-elements-leicht-gemacht/), on reading elements from scripts.
+
+</Recipe>

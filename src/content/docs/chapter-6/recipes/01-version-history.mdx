@@ -1,0 +1,168 @@
+---
+title: Version history and restore
+description: Recipe 6.1 — build the chapter's example content, then compare saved versions of a workflow as text and as a picture, restore an older one, and bring back a deleted workflow.
+sidebar:
+  label: 6.1 Version history and restore
+  order: 1
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+Before content leaves a server, it has a history on that server. Orchestrator keeps a record of every saved version of a workflow, action, policy, configuration element, resource element, and package. You can see what changed between two saves, and go back to any of them. Deleting an object doesn't throw that history away either: deleted objects wait under **Deleted Items** until you restore them.
+
+In this recipe you build the small set of content the rest of the chapter uses, change it once, compare the two versions, restore the first one, and then delete the workflow and bring it back.
+
+<Recipe type="ready">
+
+- A login to the Orchestrator Client on `vco01.vmw.lab` with a role that can create workflows, actions, and configuration elements.
+- The vCenter `vc01.vmw.lab` registered with the vSphere plug-in, as in recipe 1.9.
+- The folders **VCF Orchestrator Guide/Chapter 6** under both **Library** > **Workflows** and **Assets** > **Configurations**.
+
+</Recipe>
+
+<Recipe type="how">
+
+**Build the example content**
+
+1. Go to **Assets** > **Configurations**, open the folder **VCF Orchestrator Guide/Chapter 6**, and click **New Configuration**. Name it `vcfguide-ch6-settings`.
+2. On the **Variables** tab, add two variables and click **Save**:
+
+| Name | Type | Value |
+|---|---|---|
+| `reportPrefix` | `string` | `VCF Guide` |
+| `apiToken` | `SecureString` | `not-a-real-secret` |
+
+The workflow only reads `reportPrefix`. `apiToken` stands in for the credential a real workflow would keep here, so you can see what happens to secrets in recipes 6.2 and 6.3.
+
+3. Go to **Library** > **Workflows**, open the folder **VCF Orchestrator Guide/Chapter 6**, and create the workflow **Report powered-on VMs**. On the **General** tab, set the **Version** to `1.0.0`.
+4. On the **Variables** tab, add a variable `reportPrefix` of type `string` and bind it to the configuration element `vcfguide-ch6-settings`, variable `reportPrefix`, as in recipe 4.7.
+5. On the **Schema** tab, add a scriptable task named **Count VMs**, give it `reportPrefix` as an input, and enter:
+
+```javascript title="Report powered-on VMs / Count VMs — version 1.0.0"
+// reportPrefix comes from the configuration element vcfguide-ch6-settings
+var vms = VcPlugin.getAllVirtualMachines();
+System.log(reportPrefix + ": " + vms.length + " VMs in the vSphere inventory");
+```
+
+6. Click **Save**, then **Run**. The log shows one line, such as *VCF Guide: 57 VMs in the vSphere inventory*.
+
+**Change it**
+
+7. In **Library** > **Actions**, create the action `countPoweredOnVms` in a new module, `com.vcfguide.chapter6`. It has no inputs and the **Return type** `number`:
+
+```javascript title="com.vcfguide.chapter6/countPoweredOnVms"
+// Returns the number of powered-on VMs across every registered vCenter.
+var vms = VcPlugin.getAllVirtualMachines();
+var count = 0;
+for (var i = 0; i < vms.length; i++) {
+    if (vms[i].runtime.powerState.value === "poweredOn") {
+        count++;
+    }
+}
+return count;
+```
+
+8. Open **Report powered-on VMs** again. Replace the script of **Count VMs** with:
+
+```javascript title="Report powered-on VMs / Count VMs — version 1.1.0"
+// reportPrefix comes from the configuration element vcfguide-ch6-settings
+var chapter6 = System.getModule("com.vcfguide.chapter6");
+var total = VcPlugin.getAllVirtualMachines().length;
+var poweredOn = chapter6.countPoweredOnVms();
+System.log(reportPrefix + ": " + poweredOn + " of " + total + " VMs powered on");
+```
+
+9. On the **General** tab, change the **Version** to `1.1.0`, add `Counts powered-on VMs with an action` to the description, and click **Save**. Run it again: the log now says *VCF Guide: 42 of 57 VMs powered on*.
+
+**Compare the versions**
+
+10. Open the **Version History** tab. There's one entry for each save, newest first, with its version number, the user who saved it, and the time.
+11. Select the entry for `1.0.0`, and in the **Diff against** drop-down choose the current version. A window shows the two versions as text, with the changed script lines and the new version number and description highlighted.
+
+<Figure n="6.1" caption="The saves of a workflow on its Version History tab."
+  capture="<b>Version History</b> tab of <b>Report powered-on VMs</b> on <code>vco01</code>: entries for <code>1.0.0</code> and <code>1.1.0</code> (and any intermediate saves) with user and time, the <b>Diff against</b> drop-down and the <b>Restore</b> and <b>Diff Visually</b> controls visible." />
+
+<Figure n="6.2" caption="Two versions of a workflow compared as text."
+  capture="The text comparison of <code>1.0.0</code> against the current version of <b>Report powered-on VMs</b>: the <code>version</code> and <code>description</code> lines and the three changed script lines highlighted." />
+
+12. Close the window and click **Diff Visually**, at the top right of the tab. In the two **Version** drop-downs, choose `1.0.0` and `1.1.0`. The client shows the two versions side by side, with sections for the general information, variables, inputs and outputs, and the schema.
+
+<Figure n="6.3" caption="The same comparison as a picture."
+  capture="<b>Diff Visually</b> view for <b>Report powered-on VMs</b>, <code>1.0.0</code> on one side and <code>1.1.0</code> on the other, with the version number and description changes marked and the <b>Use Version</b> button visible." />
+
+<Verify>On 9.1.1, record the columns of the <b>Version History</b> tab, the exact name of the <b>Diff against</b> control, and whether the text comparison is YAML (as in the 8.12 documentation) or another format. Check whether the visual comparison marks changes inside a scriptable task's script or only shows that the element changed.</Verify>
+
+**Restore an older version**
+
+13. Back on the **Version History** tab, select `1.0.0` and click **Restore**. The workflow's script and its version number go back to `1.0.0`.
+14. Look at the list again. The restore didn't remove `1.1.0`: it added a new entry at the top. Select `1.1.0` and click **Restore** to get the newer script back.
+
+<Verify>Confirm on 9.1.1 that a restore asks for confirmation, that it adds a new entry rather than removing later ones, and which version number the restored workflow shows. Check whether unsaved edits in the open editor are lost when you restore.</Verify>
+
+**Delete and bring back a workflow**
+
+15. In **Library** > **Workflows**, select **Report powered-on VMs** and delete it. It disappears from the folder.
+16. Go to **Deleted Items**. The workflow is listed with the time it was deleted. Select it and restore it. It goes back to **VCF Orchestrator Guide/Chapter 6** with its version history intact.
+
+<Figure n="6.4" caption="A deleted workflow waiting to be restored."
+  capture="<b>Deleted Items</b> on <code>vco01</code> with <b>Report powered-on VMs</b> listed (type, deletion time), selected, and the restore button visible." />
+
+<Verify>Find <b>Deleted Items</b> in the 9.1.1 client (the 8.18 documentation lists it among the client's pages, beside <b>Audit Logs</b> and <b>Git Repositories</b>) and record its path, its columns, and the name of the restore button. Check whether a restored workflow goes back to its original folder, and how long deleted items are kept.</Verify>
+
+</Recipe>
+
+<Recipe type="works">
+
+**Every save is a version.** Each time you save an object, Orchestrator records the whole object as it was, with the user and the time, and keeps every earlier record. Comparing two entries shows the difference between two complete objects, not a list of edits. Restoring an entry saves that old object again as the newest version, so a restore never destroys anything: you can always restore your way forward again, as in step 14.
+
+The objects with a history are the ones you write yourself: workflows, actions, policies, configuration elements, resource elements, and packages. Plug-in inventory objects, such as a registered vCenter or a REST host, aren't on that list. They're configuration of a plug-in, not content, and you recreate them with the plug-in's configuration workflows.
+
+**The version number is yours.** The **Version** field doesn't decide whether a history entry is made. Every save makes one. The number is for people, and for package imports: when you import a package, Orchestrator compares each element's version number with the one already on the server, and only selects elements that are newer (recipe 6.2). Raise the number whenever you change something another server should pick up.
+
+**History is stored like Git.** Under the client, Orchestrator keeps its content in an internal Git repository on the server. Each save is a commit, the **Version History** tab is that object's log, and **Administration** > **Git History** shows the commits for the whole server. That's why the same history can be pushed to an external Git server in recipe 6.3, and why Broadcom's articles on Git problems talk about Orchestrator's "local repository". It also explains the limits: history lives in Orchestrator's database, so it's as safe as your backup of the appliance (recipe 2.6), and only as long-lived as the server.
+
+<Verify>The description of the internal repository is drawn from Broadcom KB 314887 and KB 446735, which refer to Orchestrator's internal local Git repository and to Git-backed content storage. Confirm on 9.1.1 that <b>Administration</b> > <b>Git History</b> is present and lists local commits even when no external repository is connected.</Verify>
+
+**Deleting marks, it doesn't erase.** A deleted workflow is marked as deleted and moved out of sight, and its version history is kept. Restoring it clears the mark, so it comes back with every earlier version.
+
+<ThenNow
+  then="Open the workflow, go to <b>General</b> > <b>Show version history</b>, and use <b>Diff Against Current</b> and <b>Revert</b>. A version was only kept if you raised the version number before saving, and reverting threw away unsaved changes for good."
+  now="Every save is kept on the object's <b>Version History</b> tab. Compare any two entries with <b>Diff against</b> or <b>Diff Visually</b>, and <b>Restore</b> adds the old version as a new entry." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**Two people, one workflow.** If someone else saves a workflow while you have it open, your save hits a **merge conflict**. Click **Resolve** next to the error. The **Resolve Conflicts** window offers **Use theirs** to keep the other person's version, **Use ours** to keep yours, or **Resolve** to edit the merged version by hand. **Resolve** is unavailable when the merged version isn't valid. The safer habit is to agree who owns which workflows.
+
+<Verify>Reproduce a merge conflict on 9.1.1 with two users editing <b>Report powered-on VMs</b> at once, and record the error text and the three choices in <b>Resolve Conflicts</b>.</Verify>
+
+**Actions and configuration elements work the same way.** Recipe 4.2 compared and restored versions of an action. A configuration element's history records its variables and their values, so restoring one also restores old values. For a `SecureString`, the history shows only that a value is set, never the secret.
+
+<Verify>On 9.1.1, change <code>reportPrefix</code> in <code>vcfguide-ch6-settings</code>, save, and check what the element's <b>Version History</b> shows for <code>reportPrefix</code> and for <code>apiToken</code>, and whether restoring an older version restores the old <code>SecureString</code> value.</Verify>
+
+**Workflows that have no history.** Workflows created by the SQL plug-in's **Generate CRUD workflows for a table** workflow (recipe 5.4) don't appear in version history and can't be pushed to Git. Duplicate a generated workflow and use the copy if you want it tracked.
+
+**Version history from the REST API.** The 9.1 API lists a workflow's versions with `GET /vco/api/workflows/{id}/versions`, so a report or a pipeline can see who changed what without opening the client.
+
+<Verify>Call <code>GET /vco/api/workflows/&#123;id&#125;/versions</code> for <b>Report powered-on VMs</b> on 9.1.1 (seen in a comparison of the 9.x API definitions, not in the reference pages) and record the fields of each entry.</Verify>
+
+**Folders have no history.** A folder that still has content can only be deleted with **Force delete**, which deletes everything inside it as well. If a folder vanished with its content, look for the workflows in **Deleted Items**.
+
+<Verify>Force-delete a test folder with one workflow in it on 9.1.1, and check that the workflow appears in <b>Deleted Items</b> and can be restored without the folder.</Verify>
+
+</Recipe>
+
+<Recipe type="see">
+
+- [4.2 Writing and reusing actions](../../../chapter-4/recipes/02-actions/), for an action's **Version History** tab and when to raise its version.
+- [6.2 Packages: create, export, import](../02-packages/), where version numbers decide what an import selects.
+- [6.3 Git integration and branching](../03-git-integration/), which pushes this history to an external repository.
+- Broadcom TechDocs (VCF 9.0): [VCF Operations orchestrator Object Version History](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/types-of-orchestrator-instances/version-history-in-the-vrealize-orchestrator-operations-client.html), with its pages on restoring a workflow, visual comparison, and resetting with Git.
+- Broadcom TechDocs (VCF 9.0): [Key features of the VCF Operations orchestrator platform](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/key-features-of-the-vcf-operations-orchestrator-platform.html), on versioning.
+- VMware Docs (Aria Automation Orchestrator 8.12): [Compare workflow versions with the graphic difference tool](https://docs.vmware.com/en/VMware-Aria-Automation/8.12/Using-Automation-Orchestrator/GUID-8721F183-FEB2-43A8-A3DD-FEE66E6324A4.html), and (8.18) [the Orchestrator Client pages](https://docs.vmware.com/en/VMware-Aria-Automation/8.18/Using-Automation-Orchestrator/GUID-9603063A-00A8-4AD7-B888-9CAD05216EB0.html), including **Deleted Items**.
+- Broadcom KB [314887](https://knowledge.broadcom.com/external/article/314887/push-to-git-repository-fails-with-could.html) and [446735](https://knowledge.broadcom.com/external/article/446735), on Orchestrator's internal repository.
+
+</Recipe>

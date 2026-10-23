@@ -1,0 +1,143 @@
+---
+title: How plug-ins work
+description: Recipe 5.1 — what a plug-in adds to Orchestrator, where its workflows, inventory, and scripting objects show up, and how to install, turn off, and tune plug-ins on a standalone appliance.
+sidebar:
+  label: 5.1 How plug-ins work
+  order: 1
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+Out of the box, Orchestrator's JavaScript can add numbers, build strings, and wait. Everything it does to the outside world, it does through a **plug-in**. The vCenter plug-in is why a workflow input can be a `VC:VirtualMachine`, the HTTP-REST plug-in is why a script can call an API, and the SSH plug-in is why it can log in to a Linux server. Each plug-in brings the same four things: object types for scripts, an inventory of live objects, ready-made workflows and actions, and sometimes events from the system it talks to.
+
+In this recipe you take one plug-in apart to see those four things, then look at how plug-ins are managed: installing a third-party one, turning one off, and raising one plug-in's log level when it misbehaves.
+
+<Recipe type="ready">
+
+- The standalone appliance `vco01.vmw.lab` and a login with administrator rights. Managing plug-ins needs an administrator; looking at them doesn't.
+- The vCenter `vc01.vmw.lab` registered with the vCenter plug-in (recipe 1.9).
+- The action module `com.vcfguide.chapter5`. Create it with the first action in step 9.
+- For steps 13 to 16 only: a third-party plug-in file, a `.vmoapp` or `.dar`, from the vendor whose product it connects to.
+
+</Recipe>
+
+<Recipe type="how">
+
+**See which plug-ins are installed**
+
+1. In the Orchestrator Client, go to **System Settings** and open **Plug-ins**. The list shows every installed plug-in with its version and whether it's on.
+2. Find **vCenter**, **HTTP-REST**, **SSH**, and **SQL** in the list. These four are installed with the server and are the subject of this chapter.
+
+<Figure n="5.1" caption="The plug-ins installed on a standalone appliance."
+  capture="<b>System Settings</b> > <b>Plug-ins</b> on <code>vco01.vmw.lab</code>, the full list of plug-ins with name, version and state, <b>vCenter</b>, <b>HTTP-REST</b>, <b>SSH</b> and <b>SQL</b> visible, and the <b>Add Plug-in</b> button." />
+
+<Verify>On 9.1.1, check the path to the plug-in list (<b>System Settings</b> > <b>Plug-ins</b>, or a <b>Plug-ins</b> card with an <b>Open</b> button as in 8.18), the columns it shows, and the label of the button that turns a plug-in on or off.</Verify>
+
+**Find a plug-in's workflows**
+
+3. Go to **Library** > **Workflows** and type the tags `ssh` and `configuration` in the search box. You get the SSH plug-in's configuration workflows, such as **Add SSH Host** and **Remove SSH Host**.
+4. Clear the `configuration` tag and leave `ssh`. Now you also see the plug-in's other workflows, such as **Run SSH command**.
+
+Every plug-in that connects to something has configuration workflows tagged `configuration`. They're how you tell the plug-in what to connect to: a vCenter, a REST host, an SSH host, a database.
+
+**Look at its inventory**
+
+5. Go to **Administration** > **Inventory**. Each entry in the list is a plug-in, and under it are the objects it knows about.
+6. Expand **vSphere vCenter Server** and `vc01.vmw.lab`, then a data center and a VM. Select the VM. The pane on the right shows its properties, and the type of the object, `VC:VirtualMachine`.
+
+<Figure n="5.2" caption="A VM in the vCenter plug-in's inventory, with its type and properties."
+  capture="<b>Administration</b> > <b>Inventory</b>, <b>vSphere vCenter Server</b> > <code>vc01.vmw.lab</code> expanded down to a VM, the VM selected, the details pane showing <code>VC:VirtualMachine</code> and some properties." />
+
+**Look at its scripting objects**
+
+7. Open the **API Explorer** and search for `VirtualMachine`. You find the type `VC:VirtualMachine`, with the same properties and methods as the vSphere API's `VirtualMachine` object.
+8. Search for `SSHSession` and `RESTHost`. Every type you find came from a plug-in; Orchestrator's own types, such as `System` and `Server`, are listed apart from them.
+
+**Find objects from a script**
+
+9. In **Library** > **Actions**, create the action `findInventoryObjects` in the new module `com.vcfguide.chapter5`, with the inputs `type` and `query` of type `string`, and the **Return type** `Array/string`:
+
+```javascript title="com.vcfguide.chapter5/findInventoryObjects"
+// Lists the inventory objects of one plug-in type, such as
+// "VC:VirtualMachine" or "SSH:Host", whose name matches query.
+// An empty query returns every object of that type.
+var objects = Server.findAllForType(type, query || null) || [];
+var lines = [];
+for (var i = 0; i < objects.length; i++) {
+    lines.push(objects[i].name + " (" + System.getObjectType(objects[i]) + ")");
+}
+System.log(objects.length + " objects of type " + type);
+return lines;
+```
+
+10. Run the action with `type` = `VC:VirtualMachine` and an empty `query`. The log reports how many VMs the vCenter plug-in sees, and the result lists their names.
+11. Run it again with `type` = `VC:HostSystem`. You get the ESXi hosts instead, through the same call.
+
+<Verify>On 9.1.1, check what <code>Server.findAllForType</code> does with the <code>query</code> argument for <code>VC:VirtualMachine</code> (a name match, or a plug-in-specific query that's ignored), that <code>System.getObjectType</code> returns the type name, such as <code>VC:VirtualMachine</code>, and that the SSH plug-in's host type is called <code>SSH:Host</code>.</Verify>
+
+**Raise one plug-in's log level**
+
+12. Back in **System Settings** > **Plug-ins**, select **SSH** and change its log level to **DEBUG**. The SSH plug-in now writes more detail to the server log; the other plug-ins don't. Set it back when you've found what you were looking for.
+
+<Verify>Find where 9.1.1 sets the log level of a single plug-in (on the plug-in's entry in the list, or on <b>System Settings</b> > <b>Log Configuration</b>), the names of the levels, and whether the change needs a restart of the server.</Verify>
+
+**Install a third-party plug-in**
+
+13. In **System Settings** > **Plug-ins**, click **Add Plug-in**.
+14. Click **Select** and choose the `.vmoapp` or `.dar` file. Choose a log level and click **Next**.
+15. Check the plug-in's name and version, accept the licence agreement, and click **Install**.
+16. Wait while the Orchestrator server restarts, which takes a few minutes, then log in again. The new plug-in is in the list, its workflows are in **Library** > **Workflows**, and its types are in the API Explorer.
+
+<Verify>The install steps come from Broadcom's 8.18 documentation and KB 422049 (8.17 and later). Run them on 9.1.1 with a real third-party plug-in, record the labels on each page, whether an <b>Upload</b> step follows <b>Install</b>, and how long the server takes to restart. On a three-node cluster, check that one install reaches every node.</Verify>
+
+<Figure n="5.3" caption="Installing a third-party plug-in."
+  capture="<b>Add Plug-in</b> dialog after <b>Next</b>: the plug-in's name, version and vendor, the licence agreement with its check box, and the <b>Install</b> button." />
+
+</Recipe>
+
+<Recipe type="works">
+
+A plug-in is a bundle of Java code and Orchestrator content that the server loads when it starts. The Java code talks to the external system, using whatever that system speaks: the vSphere API, HTTP, SSH, JDBC. The content is ordinary workflows and actions, stored in the plug-in's own workflow folders and action modules, such as `com.vmware.library.ssh`.
+
+The Java side tells Orchestrator about the plug-in in three ways:
+
+- **Scripting types.** Each kind of object the plug-in handles becomes a type with a prefix, such as `VC:VirtualMachine` or `SSH:Host`, or a plain name, such as `SSHSession`. Scripts use them like any other object, and workflow inputs, outputs, and variables can have them as their type. That's what lets an input form show a VM picker.
+- **The inventory.** A plug-in can offer a tree of its objects. Orchestrator asks it for the children of a node when you expand it, so the inventory always shows the live state of the system, not a copy. `Server.findAllForType` asks the same plug-in, by type, which is why one call can find VMs, hosts, or SSH hosts.
+- **Events.** Some plug-ins, such as AMQP, can tell Orchestrator when something happens in the external system, so a policy or a waiting workflow can react to it.
+
+Configuration workflows exist because most plug-ins need to be told where to connect. The vCenter plug-in needs a vCenter, the HTTP-REST plug-in needs a REST host. Running **Add a vCenter Server instance** or **Add a REST host** stores that connection in Orchestrator's database, and from then on the plug-in shows it in the inventory. Because the connection is in the database, it survives restarts, and every node of a cluster sees it.
+
+The plug-ins in the list are a mix of those installed with the server, such as vCenter, HTTP-REST, SSH, SQL, Mail, and AMQP, and any you add. You can turn any of them off. You can only delete or replace the ones you installed yourself; the others are updated with Orchestrator.
+
+Installing a plug-in restarts the Orchestrator server, because the server loads plug-ins only when it starts. Runs in progress are interrupted. Install plug-ins in a quiet moment, and on a cluster expect every node to restart.
+
+<ThenNow
+  then="Install a plug-in in Control Center on port 8283, on the <b>Manage Plug-Ins</b> page, then restart the Orchestrator service yourself. Browse plug-in objects in the Java client's inventory tab."
+  now="Install it in the Orchestrator Client, under <b>System Settings</b> > <b>Plug-ins</b>, and the server restarts by itself. Browse plug-in objects under <b>Administration</b> > <b>Inventory</b>." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**Turning a plug-in off.** Select the plug-in in **System Settings** > **Plug-ins** and turn it off. Its file stays on the server, so turning it back on later brings back its types and workflows. A plug-in you don't use, such as SNMP or Auto Deploy on a server that never needs them, is a candidate. Check first that no workflow uses its types: workflows that do can't run while it's off.
+
+**Where to get third-party plug-ins.** Third-party plug-ins come from the vendor of the product they connect to, such as a storage array, an IP address manager, or a backup product. Check that the vendor lists the plug-in as supported for VCF Operations Orchestrator 9, and install it on a test Orchestrator before production: it runs inside the server, with the server's rights.
+
+**Plug-ins and packages.** A package (Chapter 6) can carry your workflows and actions, but not the plug-ins they need. Install the same plug-ins, at the same versions, on every Orchestrator you move content to.
+
+**Writing your own.** Orchestrator has a software development kit for writing plug-ins in Java. For most jobs you don't need one: the HTTP-REST, SSH, and SQL plug-ins in the next recipes, plus actions in Python, Node.js, or PowerShell (Chapter 4), reach almost any system.
+
+</Recipe>
+
+<Recipe type="see">
+
+- [1.9 Registering your first vCenter](../../../chapter-1/recipes/09-register-vcenter/), the vCenter plug-in's configuration workflow.
+- [4.2 Writing and reusing actions](../../../chapter-4/recipes/02-actions/), for modules and actions.
+- [5.2 REST hosts and operations](../02-rest-hosts/), [5.3 SSH commands and file copy](../03-ssh/), and [5.4 SQL databases](../04-sql-databases/), for three of the plug-ins in use.
+- Broadcom TechDocs (VCF 9.1): [Managing VCF Operations orchestrator plug-ins](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-1/configuration-of-vmware-cloud-foundation-operations-orchestrator/vcf-ochestrator-plugins-overview/manage-the-orchestrator-plug-ins.html), [Install, update, or delete a plug-in](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-1/configuration-of-vmware-cloud-foundation-operations-orchestrator/vcf-ochestrator-plugins-overview/manage-the-orchestrator-plug-ins/install-update-or-delete-a-plug-in.html), and [Plug-ins installed with the VCF Operations orchestrator server](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-1/configuration-of-vmware-cloud-foundation-operations-orchestrator/vcf-ochestrator-plugins-overview/manage-the-orchestrator-plug-ins/default-orchestrator-plug-ins-new.html).
+- Broadcom TechDocs (VCF 9.0): [Using the VCF Operations orchestrator Plug-ins](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/vcf-ochestrator-plugins-overview.html).
+- Broadcom KB [422049](https://knowledge.broadcom.com/external/article/422049/how-to-install-update-or-delete-a-thirdp.html): installing, updating, or deleting a third-party plug-in. KB [445534](https://knowledge.broadcom.com/external/article/445534/unable-to-access-the-aria-automation-orc.html): plug-in management moved from Control Center into the client.
+
+</Recipe>

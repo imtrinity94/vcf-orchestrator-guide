@@ -1,0 +1,158 @@
+---
+title: Policies and event triggers
+description: Recipe 7.3 — let Orchestrator start work on its own. Build a policy with a periodic event that runs a workflow every few minutes, start and stop it as a policy run, make it survive a restart, and see which other events a policy can react to.
+sidebar:
+  label: 7.3 Policies and event triggers
+  order: 3
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+So far every workflow in this book was started by someone: a person in the client, another workflow, or a script. A **policy** starts work by itself. It's a long-running object on the server that waits for something to happen, a period to pass, a message to arrive, a trap from a network device, and runs a workflow or a script each time it does.
+
+In this recipe you build a policy that checks every five minutes how many VMs are powered on in `vc01.vmw.lab`, and warns when the number drops below a threshold. It's deliberately small, so you can see the parts of a policy without a plug-in getting in the way: its variables, its elements, its event handlers, and the policy run that keeps it going. **There's more** points to the plug-ins that give policies real-world events.
+
+<Recipe type="ready">
+
+- Administrator rights on `vco01.vmw.lab`, and `vc01.vmw.lab` registered (recipe 1.9).
+- The workflow folder **VCF Orchestrator Guide/Chapter 7**.
+
+</Recipe>
+
+<Recipe type="how">
+
+**The workflow the policy runs**
+
+1. In **VCF Orchestrator Guide/Chapter 7**, create the workflow **Count powered-on VMs**, with one input, `minimumPoweredOn` (`number`), and one output, `poweredOnCount` (`number`).
+2. Add a scriptable task called `Count`, with `minimumPoweredOn` in and `poweredOnCount` out:
+
+```javascript title="Count powered-on VMs — Count"
+var vms = VcPlugin.getAllVirtualMachines();
+poweredOnCount = 0;
+for (var i = 0; i < vms.length; i++) {
+    if (vms[i].runtime.powerState.value === "poweredOn") {
+        poweredOnCount++;
+    }
+}
+System.log(poweredOnCount + " of " + vms.length + " VMs are powered on");
+if (poweredOnCount < minimumPoweredOn) {
+    System.warn("Only " + poweredOnCount + " VMs are powered on, expected at least " + minimumPoweredOn);
+}
+```
+
+3. Save it and run it once with `minimumPoweredOn` = `3`, to be sure it works before a policy runs it unattended.
+
+**Create the policy**
+
+4. Go to **Library** > **Policies** and click **New Policy**.
+5. Enter the name `VCF Guide VM count` and the version `1.0.0`. Put it in the folder **VCF Orchestrator Guide/Chapter 7**, and add the description `Every five minutes, counts powered-on VMs on vc01 and warns below a threshold.`
+6. On the **Variables** tab, click **New**, and create the variable `minimumPoweredOn` of type `number`, with the value `3`. Click **Save**. The threshold now lives on the policy, not in the workflow, and you can change it without editing anything else.
+
+<Figure n="7.7" caption="A policy variable, holding the threshold."
+  capture="Policy editor for <b>VCF Guide VM count</b>, <b>Variables</b> tab: variable <code>minimumPoweredOn</code>, type <code>number</code>, value <code>3</code>, with the <b>Array</b> check box and <b>Bind to configuration</b> visible." />
+
+**Define what it does, and when**
+
+7. Open the **Definition** tab. The policy already has a root element, which stands for the policy itself.
+8. Select the root element and add an **OnInit** event handler. Choose a script, and enter:
+
+```javascript title="VCF Guide VM count — root OnInit"
+System.log("VCF Guide VM count started, threshold " + minimumPoweredOn);
+```
+
+9. Add an **OnExit** event handler to the root element in the same way, with the script `System.log("VCF Guide VM count stopped");`.
+10. Add a **periodic event** element. Set it to fire every five minutes.
+11. Select the periodic event and add an **OnExecute** event handler. Choose the workflow **Count powered-on VMs**, and bind its input `minimumPoweredOn` to the policy variable of the same name.
+12. Click **Save**.
+
+<Figure n="7.8" caption="The policy's elements and their event handlers."
+  capture="Policy editor for <b>VCF Guide VM count</b>, <b>Definition</b> tab: the root element with <b>OnInit</b> and <b>OnExit</b> script handlers, and a periodic event element with an <b>OnExecute</b> handler running <b>Count powered-on VMs</b>; the periodic event's interval set to five minutes, and the workflow input <code>minimumPoweredOn</code> bound to the policy variable." />
+
+<Verify>Walk steps 7 to 12 on 9.1.1 and record the exact labels: how the root element is shown, how a periodic event element is added (a button, a palette, or a menu), how its interval or time window is set and in which units, how an event handler is added and set to a script or a workflow, whether the root handlers are spelled <b>OnInit</b> and <b>OnExit</b>, and how a workflow input is bound to a policy variable. Also check that a handler script can read policy variables by name, as step 8 assumes.</Verify>
+
+**Run it**
+
+13. In **Library** > **Policies**, select **VCF Guide VM count** and click **Run**. Enter the policy run name `VM count every 5 minutes` and confirm.
+14. Go to **Activity** > **Policy Runs**. `VM count every 5 minutes` is listed as **Running**. Open it: its log has the line *VCF Guide VM count started, threshold 3*.
+15. Wait five minutes, then open **Activity** > **Workflow Runs**. A run of **Count powered-on VMs** has appeared, started by the policy, with the count in its log. Another follows every five minutes.
+
+<Figure n="7.9" caption="The policy run, and the workflow runs it started."
+  capture="<b>Activity > Policy Runs</b> with <code>VM count every 5 minutes</code> in state <b>Running</b>; beside it, <b>Activity > Workflow Runs</b> filtered on <b>Count powered-on VMs</b> with two or three runs five minutes apart, the newest showing <i>N of M VMs are powered on</i> in its log." />
+
+16. Change the threshold to test the warning. Open the policy, set `minimumPoweredOn` to a number higher than your powered-on VMs, and save. Stop the policy run (step 18) and run it again, so the run picks up the new value. The next workflow run logs the warning.
+
+<Verify>Check whether a running policy picks up a changed variable value without a restart on 9.1.1, or only after it's stopped and run again, as step 16 assumes.</Verify>
+
+**Keep it running across restarts, and stop it**
+
+17. Open the policy run from **Activity** > **Policy Runs**. On its **General** tab, set the server start-up behaviour so that the policy run starts again when the server starts, and leave the priority at its default. Save.
+18. To stop the policy, open the policy run and click **Stop**. Its state changes to **Stopped**, its log shows the **OnExit** line, and no more workflow runs start. Click **Run** on the same policy run to start it again.
+
+<Verify>Record the start-up behaviour options and the priority values on the <b>General</b> tab of a 9.1.1 policy run, and confirm, by restarting the <code>vco-app</code> pods or rebooting <code>vco01</code>, that a policy run set to start with the server comes back <b>Running</b>.</Verify>
+
+</Recipe>
+
+<Recipe type="works">
+
+**A policy and its runs.** A policy is a definition, like a workflow. It's versioned, it lives in a folder, and it travels in packages and Git (Chapter 6). Clicking **Run** creates a **policy run**, a live instance of that definition, with its own copy of the variables, its own log, and its own state, **Running** or **Stopped**. One policy can have several runs, for example one per vCenter with different variable values. **Activity** > **Policy Runs** lists them, as **Activity** > **Workflow Runs** lists workflow runs.
+
+**Elements and event handlers.** A policy run doesn't do anything itself. Its elements decide what it listens to, and their event handlers decide what happens:
+
+| Element | Handler | When it fires |
+|---|---|---|
+| Root element | **OnInit** | Each time the policy run starts |
+| Root element | **OnExit** | Each time the policy run stops |
+| Periodic event | **OnExecute** | At each interval, within the time window set on the element |
+| An inventory object from a plug-in | A handler the plug-in offers, such as **OnTrap** for SNMP | When the plug-in reports an event on that object |
+
+A handler can be a workflow or a script. If you give one handler both, the policy runs the workflow and ignores the script. Use a script for something short, like the log lines in steps 8 and 9, and a workflow for anything with steps, inputs, or error handling, because a workflow run leaves a token you can inspect, resume, and replay (recipe 3.5), and a handler script leaves only a log line.
+
+**Variables are the policy's inputs.** A policy run has no input form. What it needs comes from its variables, which you can type in or bind to a configuration element with **Bind to configuration** (recipe 4.7). Bind them when the same policy runs on development and production with different values, so that a promoted policy (recipe 6.4) picks up each server's own settings.
+
+**What a policy run costs.** A running policy holds a little memory on the server and fires on the engine's own timer. It doesn't hold a workflow thread while it waits. The workflows it starts are ordinary runs, and they count against the server's limit on concurrent runs like any other. A periodic event every few seconds that starts a heavy workflow can fill the queue. Choose an interval that's longer than the workflow takes to run.
+
+<Verify>The statement that a waiting policy run holds no workflow thread is inferred from how Orchestrator schedules work, not documented. Check on 9.1.1 what happens when a run of <b>Count powered-on VMs</b> is still running at the next interval: whether a second run starts, or the event is skipped.</Verify>
+
+**Policies after an upgrade.** Broadcom KB 446432 describes policies created on Aria Automation Orchestrator 8.x that stop firing on schedule after the upgrade to 9.x, while running them by hand still works. The cause is the security context stored with the old policy. The fix is to duplicate or recreate each such policy on 9.x, check that the new one fires, and remove the old one. Policies you create on 9.x, like this one, aren't affected.
+
+<ThenNow
+  then="Create policies in the Java client, often from a <b>policy template</b> that a plug-in shipped, and apply the template to an inventory object."
+  now="Create policies under <b>Library</b> > <b>Policies</b> in the browser client, add elements and event handlers on the <b>Definition</b> tab, and watch them under <b>Activity</b> > <b>Policy Runs</b>. Policies made in 8.x may need to be recreated after an upgrade (KB 446432)." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**Events from plug-ins.** The periodic event is built in. Real events come from plug-ins, which add inventory objects you can put on a policy's **Definition** tab, and handlers for them:
+
+- The **AMQP** plug-in: a subscription to one or more queues, with a handler that fires for each message. Recipe 5.7 builds one.
+- The **SNMP** plug-in: a device or a trap host, with an **OnTrap** handler that fires for each SNMP trap Orchestrator receives.
+- Other plug-ins, such as the vSphere plug-in, can offer handlers for their own objects. Check the handlers a plug-in offers by adding one of its objects to a test policy.
+
+<Verify>Add a <code>VC:VirtualMachine</code> and a <code>VC:HostSystem</code> from <code>vc01.vmw.lab</code> to a test policy on 9.1.1 and record which event handlers the vSphere plug-in offers for them, if any. If it offers none, say in this section that vCenter events reach Orchestrator through VCF Automation event subscriptions (Chapter 8), AMQP, or a periodic check instead.</Verify>
+
+**Policy or schedule?** A periodic policy and a recurring scheduled workflow both run something at intervals. A schedule is simpler: one workflow, one recurrence, inputs filled in once, and nothing to keep running. Use a policy when you need what only a policy has: several handlers sharing variables, start and stop hooks, or events from a plug-in. KB 446432 also suggests schedules as a workaround when an upgraded policy won't fire. Chapter 7's recipe on scheduling covers schedules.
+
+**Whose identity does the work?** The workflows a policy starts run under the identity of the policy run, not of whoever is logged in when they fire. On the Orchestrator embedded in VCF Automation, that identity depends on a token that must stay valid for as long as the policy runs.
+
+<Verify>Check on 9.1.1 which user a workflow started by a policy runs as (the user who clicked <b>Run</b>, or a system user), on <code>vco01</code> and on the embedded Orchestrator at <code>auto.vmw.lab</code>, and whether a policy run on the embedded Orchestrator keeps firing after the user who started it logs out for a day.</Verify>
+
+**Starting policies from a script.** The REST API has a **Policy Service**. A pipeline can start and stop policy runs as it does workflows (recipe 7.2), for example to pause a policy during a maintenance window.
+
+<Verify>Find the 9.1.1 calls in the <b>Policy Service</b> that start and stop a policy run, and note them here with an example.</Verify>
+
+**Keep handlers quiet.** A policy that fires every five minutes writes a log line, and a workflow run, every five minutes, for as long as it runs. Log one line per run, not one per VM. Run logs are rotated (recipe 4.6), and one chatty policy can push everyone else's lines out early.
+
+</Recipe>
+
+<Recipe type="see">
+
+- [3.7 Waiting tasks and custom events](../../../chapter-3/recipes/07-waiting-and-events/), for a workflow that waits, rather than a policy that waits for it.
+- [4.7 Working with configuration elements in code](../../../chapter-4/recipes/07-configuration-elements/), for values a policy variable can bind to.
+- [5.7 AMQP and messaging](../../../chapter-5/recipes/07-amqp/), for a policy that reacts to messages.
+- Broadcom TechDocs (VCF 9.0): [Managing Policies](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/managing-policies-in-vro.html), [Create and apply policies](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/managing-policies-in-vro/create-and-apply-policies.html), [Policy elements](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/managing-policies-in-vro/policy-elements.html), and [Manage policy runs](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/managing-policies-in-vro/view-and-manage-policy-runs.html).
+- Broadcom KB [446432](https://knowledge.broadcom.com/external/article/446432/automated-orchestrator-policies-fail-to.html): policies created in 8.x don't fire after the upgrade to 9.x.
+
+</Recipe>
