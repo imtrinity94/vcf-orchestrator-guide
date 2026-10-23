@@ -148,3 +148,20 @@ Lab: VCF 9.1, Orchestrator 9.1.1. Save PNGs at roughly 1400 px wide, crop to the
 | 6.14 | `ch06/fig-6-14.png` | Terminal running `bash promote-package.sh`: *Exported …* line, JSON import result, `HTTP 202`; the `releases` folder with two dated files | — |
 | 6.15 | `ch06/fig-6-15.png` | GitHub pull request `develop` → `main`, **Files changed** with the changed lines of **Report powered-on VMs**, approving review | — |
 | 6.16 | `ch06/fig-6-16.png` | **Administration > Git History** on `auto.vmw.lab`, repository `vcfguide-content` on `main`, merge commit at the top | — |
+| 6.17 | `ch06/fig-6-17.png` | Terminal: `curl … /vco/api/packages/import-details \| jq` against `vco01.vmw.lab`, output with `contentVerified` = `true` and `certificateInfo` (common name `VMW Lab Orchestrator`, dates, SHA-1 fingerprint partly blurred) | — |
+| 6.18 | `ch06/fig-6-18.png` | Terminal: `bash check-package.sh com.vcfguide.chapter6.package`: signer, fingerprint, *Intact: true*, *Trusted here: false*, three elements with package and server versions, *OK to import.* | Java client import package certificate dialog |
+| 6.19 | `ch06/fig-6-19.png` | Terminal: `bash check-package.sh tamper/tampered.package`: same signer and fingerprint, *Intact: false*, *REFUSED: the content doesn't match its signature.* | — |
+
+## Chapter 7
+
+| Figure | File | What to capture | Replaces (old cookbook) |
+|---|---|---|---|
+| 7.1 | `ch07/fig-7-1.png` | Browser at `https://vco01.vmw.lab/vco/api/docs`: Swagger UI, **Workflow Service** expanded, `GET /workflows` after **Execute** with the generated `curl`, code `200`, start of the JSON body; `Authorization` header blurred | REST API reference page |
+| 7.2 | `ch07/fig-7-2.png` | Terminal: `. vro-env.sh` prompt, `vro GET /about \| jq .` showing 9.1.1, then `/workflows?conditions=name=…` printing the ID of **List VMs by name** and `Chapter 3` | — |
+| 7.3 | `ch07/fig-7-3.png` | VCF Automation 9.1 Provider Consumption organization portal, user menu > **My Account** > **API Tokens**, new token `vcfguide-scripts` just created, copy button and "won't be shown again" warning; token blurred | — |
+| 7.4 | `ch07/fig-7-4.png` | Terminal: `POST …/executions` and the `Location` line, state lines ending in `completed`, the `vmNames` values, log lines from `/syslogs` | Starting a workflow through the REST API |
+| 7.5 | `ch07/fig-7-5.png` | **Activity > Workflow Runs** filtered on **List VMs by name**: the API-started run at the top, **Started by** `svc-vcfguide@vsphere.local`, **Completed**, **Variables** tab with `namePattern` = `^vc` and `vmNames` | — |
+| 7.6 | `ch07/fig-7-6.png` | PowerShell 7: `./Start-VcfGuideWorkflow.ps1 -WorkflowId … -Inputs @{ namePattern = '^vc' }`, credential prompt answered, *Started https://vco01.vmw.lab/vco/api/workflows/…/executions/…*, state lines, `output-parameters` with `vmNames` | — |
+| 7.7 | `ch07/fig-7-7.png` | Policy editor for **VCF Guide VM count**, **Variables** tab: `minimumPoweredOn`, `number`, value `3`; **Array** and **Bind to configuration** visible | Java client policy attributes |
+| 7.8 | `ch07/fig-7-8.png` | Policy editor, **Definition** tab: root element with **OnInit** and **OnExit** script handlers; periodic event with **OnExecute** running **Count powered-on VMs**, interval five minutes, `minimumPoweredOn` bound to the policy variable | Java client policy Scripting tab |
+| 7.9 | `ch07/fig-7-9.png` | **Activity > Policy Runs** with `VM count every 5 minutes` **Running**; **Activity > Workflow Runs** filtered on **Count powered-on VMs**, runs five minutes apart, newest log *N of M VMs are powered on* | Java client running policy |

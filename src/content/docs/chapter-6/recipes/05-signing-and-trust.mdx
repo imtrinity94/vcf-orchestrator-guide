@@ -1,0 +1,215 @@
+---
+title: Signing and trusting packages
+description: Recipe 6.5 — find out who signed a package and whether it was changed on the way, before you import it. Record a publisher's fingerprint, check a package from a script, trust a publisher once, and see what a tampered package looks like.
+sidebar:
+  label: 6.5 Signing and trust
+  order: 5
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+Every package Orchestrator exports is signed. Recipe 2.3 looked after the certificate that does the signing, and recipe 6.2 clicked through the import dialog that shows it. Neither asked the question that matters when a package arrives from somewhere else: should you let it in?
+
+A signature answers two smaller questions. Was the package changed after it was signed? And which certificate signed it? It can't tell you whether that certificate belongs to someone you trust. That part is yours. In this recipe you record the fingerprint of `vco01.vmw.lab`'s signing certificate, check a package against it from a script before importing it into the Orchestrator embedded in VCF Automation, trust `vco01` as a publisher, and then break a package on purpose to see how the check reacts.
+
+<Recipe type="ready">
+
+- The package `com.vcfguide.chapter6` on `vco01.vmw.lab`, exported once as `com.vcfguide.chapter6.package` (recipe 6.2).
+- A Linux or macOS shell with `curl`, `jq`, `zip`, and `unzip`, and the lab's CA certificate saved as `vmw-lab-ca.pem`.
+- The service account `svc-vcfguide@vsphere.local` on `vco01`, and a bearer token for the embedded Orchestrator at `auto.vmw.lab`. Recipe 7.1 shows how to get both kinds of credential.
+- A package signing certificate on `vco01` with a name you recognise, such as `VMW Lab Orchestrator` (recipe 2.3).
+
+</Recipe>
+
+<Recipe type="how">
+
+**Record the publisher's fingerprint**
+
+1. On `vco01`, go to **Administration** > **Inventory**, expand **Configuration** > **Keystores** > **Dunes**, and select the signing certificate. Note its common name and its expiry date.
+2. Ask `vco01` itself what it sees in its own package. The packages service has a call, `POST /vco/api/packages/import-details`, that reads a package file and reports on it without importing anything:
+
+```bash
+curl --silent --show-error --cacert vmw-lab-ca.pem \
+  -u 'svc-vcfguide@vsphere.local' \
+  -F "file=@com.vcfguide.chapter6.package" \
+  https://vco01.vmw.lab/vco/api/packages/import-details \
+  | jq '{packageName, contentVerified, certificateInfo}'
+```
+
+3. Enter the password when `curl` asks. The answer names the package, says whether its content matches its signature, and describes the signing certificate:
+
+```json title="import-details on vco01 (shortened)"
+{
+  "packageName": "com.vcfguide.chapter6",
+  "contentVerified": true,
+  "certificateInfo": {
+    "commonName": "VMW Lab Orchestrator",
+    "validUntilDate": "…",
+    "fingerprintSHA1": "…",
+    "serialNumber": "…"
+  }
+}
+```
+
+4. Save the fingerprint in a file next to your release scripts, as upper case without colons. This is the value every package from `vco01` must carry:
+
+```bash
+echo 'paste-the-fingerprintSHA1-value-here' | tr -d ':' | tr 'a-f' 'A-F' > vco01-signing.sha1
+```
+
+<Figure n="6.17" caption="Orchestrator describing a package without importing it."
+  capture="Terminal: the <code>curl … /vco/api/packages/import-details | jq</code> command against <code>vco01.vmw.lab</code> and its output, with <code>contentVerified</code> = <code>true</code> and <code>certificateInfo</code> showing common name <code>VMW Lab Orchestrator</code>, validity dates, and the SHA-1 fingerprint (partly blurred)." />
+
+<Verify>Run step 2 on 9.1.1 and record the real response: which fields are present, the format of <code>fingerprintSHA1</code> (with or without colons, upper or lower case) and of the dates, and whether the call needs any form field besides <code>file</code>. The field names come from the API reference's <code>ImportPackageDetails</code> structure.</Verify>
+
+**Check a package before you import it**
+
+5. Save this script as `check-package.sh`. It asks the target server the same question, and refuses the package unless its content is intact and it was signed by the certificate in `vco01-signing.sha1`:
+
+```bash title="check-package.sh"
+#!/usr/bin/env bash
+# Checks a package against the target Orchestrator before import.
+# Usage: DST_TOKEN=... bash check-package.sh com.vcfguide.chapter6.package
+set -euo pipefail
+
+FILE="$1"
+DST="https://auto.vmw.lab/vco/api"
+CACERT="vmw-lab-ca.pem"
+EXPECTED="$(cat vco01-signing.sha1)"
+
+DETAILS="$(curl --fail --silent --show-error --cacert "$CACERT" \
+  -H "Authorization: Bearer $DST_TOKEN" \
+  -F "file=@$FILE" \
+  "$DST/packages/import-details")"
+
+VERIFIED="$(jq -r '.contentVerified' <<< "$DETAILS")"
+TRUSTED="$(jq -r '.certificateTrusted' <<< "$DETAILS")"
+SIGNER="$(jq -r '.certificateInfo.commonName' <<< "$DETAILS")"
+FINGERPRINT="$(jq -r '.certificateInfo.fingerprintSHA1' <<< "$DETAILS" \
+  | tr -d ':' | tr 'a-f' 'A-F')"
+
+echo "Package:      $(jq -r '.packageName' <<< "$DETAILS")"
+echo "Signed by:    $SIGNER"
+echo "Fingerprint:  $FINGERPRINT"
+echo "Intact:       $VERIFIED"
+echo "Trusted here: $TRUSTED"
+
+if [ "$VERIFIED" != "true" ]; then
+  echo "REFUSED: the content doesn't match its signature." >&2
+  exit 1
+fi
+if [ "$FINGERPRINT" != "$EXPECTED" ]; then
+  echo "REFUSED: signed by an unexpected certificate." >&2
+  exit 1
+fi
+
+echo "Elements and what an import would do:"
+jq -r '.importElementDetails[]
+  | "  \(.type)  \(.fileObjectName)  \(.fileObjectVersion)  server: \(.serverObjectVersion // "none")  \(.versionComparison)"' \
+  <<< "$DETAILS"
+echo "OK to import."
+```
+
+6. Run it against the package from recipe 6.2:
+
+```bash
+export DST_TOKEN='…'
+bash check-package.sh com.vcfguide.chapter6.package
+```
+
+7. Read the output. **Intact** is `true` and the fingerprint matches, so the script lists the three elements, with the version in the package beside the version already on `auto.vmw.lab`, and ends with *OK to import*. **Trusted here** is `false` if `auto.vmw.lab` has never been told to trust `vco01`'s certificate.
+
+<Figure n="6.18" caption="A package checked against the expected publisher before import."
+  capture="Terminal running <code>bash check-package.sh com.vcfguide.chapter6.package</code>: <i>Signed by: VMW Lab Orchestrator</i>, the fingerprint, <i>Intact: true</i>, <i>Trusted here: false</i>, the three elements with package and server versions, and <i>OK to import.</i>" />
+
+**Trust the publisher once**
+
+8. In VCF Automation, open the Provider Consumption organization's **Orchestrate** tab, go to **Assets** > **Packages**, and click **Import**. Choose `com.vcfguide.chapter6.package`.
+9. On the **General** tab, compare the certificate's fingerprint with the value in `vco01-signing.sha1`. They match, so accept the certificate as trusted, then import as in recipe 6.2.
+10. Run `check-package.sh` again. **Trusted here** is now `true`.
+
+<Verify>Record on 9.1.1 how the import dialog shows the signer: whether it shows the SHA-1 fingerprint, how you choose to trust the certificate (a check box, a button, or a separate prompt), and whether you can import a package without trusting its signer. Then confirm that <code>certificateTrusted</code> changes to <code>true</code> after the first trusted import, and where the trusted certificate is kept on the target: a keystore under <b>Administration</b> > <b>Inventory</b> > <b>Configuration</b> > <b>Keystores</b>, or somewhere else.</Verify>
+
+**See what tampering looks like**
+
+11. Make a copy of the package and change one file inside it. A package is a ZIP archive, so any ZIP tool will do:
+
+```bash
+mkdir tamper && cd tamper
+cp ../com.vcfguide.chapter6.package tampered.package
+unzip -l tampered.package            # list what's inside
+unzip tampered.package 'elements/*' -d x
+```
+
+12. Pick one of the element files that `unzip` extracted under `x/elements/`, change a single character in it with a text editor, and put it back:
+
+```bash
+cd x && zip ../tampered.package elements/<the-file-you-changed> && cd ..
+cd .. && bash check-package.sh tamper/tampered.package
+```
+
+13. The script stops with *REFUSED: the content doesn't match its signature.* **Intact** is `false`, although the signer and fingerprint are the same as before. The signature still names `vco01`, but it no longer matches what's in the file.
+
+<Verify>Check the layout of a 9.1.1 package (the <code>elements/</code> folder and file names used in steps 11 and 12 are an assumption; adjust the steps to what <code>unzip -l</code> shows), and that a changed element gives <code>contentVerified</code> = <code>false</code> rather than an error. Record what the client's import dialog shows for the same file.</Verify>
+
+<Figure n="6.19" caption="The same signer, but the content no longer matches."
+  capture="Terminal running <code>bash check-package.sh tamper/tampered.package</code>: <i>Signed by: VMW Lab Orchestrator</i>, the same fingerprint as Figure 6.18, <i>Intact: false</i>, and <i>REFUSED: the content doesn't match its signature.</i>" />
+
+</Recipe>
+
+<Recipe type="works">
+
+**What gets signed.** When Orchestrator exports a package, it signs each element with the private key of its package signing certificate, kept in the **Dunes** keystore in its database (recipe 2.3), and puts the certificate into the package next to the elements. Anyone who receives the file can recompute the signatures with the public key in that certificate. If a single byte of an element changed after export, the signature no longer matches, and the target reports the content as not verified.
+
+**What a signature proves, and what it doesn't.** A matching signature proves that the content is exactly what the holder of that private key exported. It doesn't prove who that holder is. The signing certificate that Orchestrator generates is self-signed: nobody but the server itself vouches for the name in it. Anyone can run **Generate Package Signing Certificate** with the common name `VMW Lab Orchestrator`. What they can't do is produce a certificate with the same fingerprint, because the fingerprint is a hash of the certificate itself, and the certificate holds `vco01`'s public key. That's why this recipe checks the fingerprint, not the name.
+
+The four answers that `import-details` gives about the signature are worth telling apart:
+
+| Field | Question it answers |
+|---|---|
+| `contentVerified` | Does the content still match its signature? |
+| `certificateValid` | Is the signing certificate within its validity dates? |
+| `certificateUnknown` | Has this server never seen the certificate before? |
+| `certificateTrusted` | Has someone on this server chosen to trust it? |
+
+<Verify>The meaning of each field is inferred from its name; the API reference lists the fields without describing them. On 9.1.1, check <code>certificateValid</code> with a package signed by an expired certificate, and <code>certificateUnknown</code> before and after the first trusted import.</Verify>
+
+**Trust is per server.** Trusting `vco01`'s certificate on `auto.vmw.lab` is a decision made on `auto.vmw.lab`, and it's remembered there. It says nothing to a third server, and it doesn't change how `vco01` signs. When you add a production cluster or a test server, each one has to be told once. Do that with the fingerprint in hand, not by clicking through.
+
+**A safe check.** `import-details` changes nothing on the target. It reads the file, compares each element with what's on the server, and answers. That makes it safe to call from a pipeline before every import, and a natural place for the rule "only packages from this certificate go into production".
+
+<ThenNow
+  then="Generate, import, or export the package signing certificate in Control Center, and decide whether to trust a package's certificate in the Java client's import dialog."
+  now="Generate the certificate with a workflow (recipe 2.3), see the signer on the browser client's import dialog, and check signature, signer, and trust from a script with <code>POST /vco/api/packages/import-details</code>." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**When the publisher's certificate changes.** Regenerating the signing certificate on `vco01` (recipe 2.3) gives it a new key and a new fingerprint. Packages exported from then on fail `check-package.sh` until you update `vco01-signing.sha1`, and every target sees an unknown certificate on the next import. That's the system working. Plan a certificate change like any other: publish the new fingerprint to the people who import your packages first, then regenerate.
+
+**More than one publisher.** If production accepts packages from two teams, keep one fingerprint per line in the file and replace the comparison in the script with `grep -qx "$FINGERPRINT" vco01-signing.sha1`. Keep the file in the same Git repository as the script, so a new publisher is a reviewed change.
+
+**Packages from vendors.** Plug-in vendors and community projects also ship `.package` files. Check them the same way: ask the publisher for the fingerprint through a channel other than the one the file came from, such as their website or a signed release note, and import into a test server first.
+
+**Git doesn't sign anything.** Content that reaches a server through Git (recipe 6.3) isn't a package and carries no Orchestrator signature. There, the trust lives in the repository: who can push to the branch, and who must review a pull request (recipe 6.4). If your security team needs a signed artifact per release, use the package route for the last step into production.
+
+**Don't share the secret on export.** Signing protects a package from being changed. It doesn't hide what's in it. Anyone who has the file can unzip it and read every script. That's another reason to leave **Add configuration SecureString attribute values to package** cleared (recipe 6.2).
+
+<Verify>Check whether a 9.1.1 package that holds exported <code>SecureString</code> values stores them encrypted, and with which key, or readable in the ZIP archive.</Verify>
+
+</Recipe>
+
+<Recipe type="see">
+
+- [2.3 Managing the package signing certificate](../../../chapter-2/recipes/03-signing-certificate/), for the certificate that signs your packages.
+- [6.2 Packages: create, export, import](../02-packages/), for the import dialog this recipe uses.
+- [6.4 Promoting content from development to production](../04-promoting-content/), where `check-package.sh` fits between export and import.
+- [7.1 The Orchestrator REST API](../../../chapter-7/recipes/01-rest-api/), for credentials and tokens.
+- Broadcom developer documentation: [Get Import Package Details](https://developer.broadcom.com/xapis/vrealize-orchestrator-api/latest/vco/api/packages/import-details/post/) and the VCF Operations Orchestrator API 9.1 [Packages service](https://developer.broadcom.com/xapis/vcf-operations-orchestrator-api/9.1/packages-service/).
+- Broadcom KB [442343](https://knowledge.broadcom.com/external/article/442343/how-to-regenerate-certificates-in-dunes.html): regenerating certificates in the Dunes keystore.
+- VMware Docs (Aria Automation Orchestrator 8.14): [Managing certificates](https://docs.vmware.com/en/VMware-Aria-Automation/8.14/Installing-Configuring-Automation-Orchestrator/GUID-617B93F2-34E6-402B-982D-59981B5ACBF6.html), on how package signatures let a receiver decide whether to trust a package.
+
+</Recipe>

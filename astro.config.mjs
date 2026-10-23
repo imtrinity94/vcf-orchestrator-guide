@@ -84,7 +84,13 @@ export default defineConfig({
             { autogenerate: { directory: 'chapter-6/recipes' } },
           ],
         },
-        { label: '7. Advanced operations', slug: 'chapter-7', badge: { text: 'Soon', variant: 'default' } },
+        {
+          label: '7. Advanced operations',
+          items: [
+            { label: 'Introduction', slug: 'chapter-7' },
+            { autogenerate: { directory: 'chapter-7/recipes' } },
+          ],
+        },
         { label: '8. Orchestrator in VCF', slug: 'chapter-8', badge: { text: 'Soon', variant: 'default' } },
       ],
     }),

@@ -6,18 +6,18 @@ sidebar:
 ---
 import Opener from '../../../components/Opener.astro';
 import ThenNow from '../../../components/ThenNow.astro';
-import ComingSoon from '../../../components/ComingSoon.astro';
 
 <Opener n={6} recipes={[
   { title: 'Version history and restore', href: 'recipes/01-version-history/' },
   { title: 'Packages: create, export, import', href: 'recipes/02-packages/' },
   { title: 'Git integration and branching', href: 'recipes/03-git-integration/' },
   { title: 'Promoting content from development to production', href: 'recipes/04-promoting-content/' },
+  { title: 'Signing and trusting packages', href: 'recipes/05-signing-and-trust/' },
 ]} />
 
 Chapters 3 to 5 built workflows, actions, and configuration elements, and every one of them lived on a single Orchestrator. Sooner or later that content has to go somewhere else: to a second instance where it can be tested, to production, or to a colleague. And sooner or later someone saves a change they wish they hadn't. This chapter is about both: knowing what changed, getting back to a version that worked, and moving content between instances without losing anything on the way.
 
-Recipe 6.1 starts on one server, with the version history Orchestrator keeps for every object, and the place deleted objects go. Recipe 6.2 bundles a workflow with the actions and configuration elements it needs into a **package**, exports it, and imports it into a second Orchestrator. Recipe 6.3 connects Orchestrator to a Git repository, so every change is pushed to a server your team already backs up and reviews. Recipe 6.4 puts the two together into a route from development to production, once with packages through the REST API and once with Git branches and a pull request.
+Recipe 6.1 starts on one server, with the version history Orchestrator keeps for every object, and the place deleted objects go. Recipe 6.2 bundles a workflow with the actions and configuration elements it needs into a **package**, exports it, and imports it into a second Orchestrator. Recipe 6.3 connects Orchestrator to a Git repository, so every change is pushed to a server your team already backs up and reviews. Recipe 6.4 puts the two together into a route from development to production, once with packages through the REST API and once with Git branches and a pull request. Recipe 6.5 closes the chapter with the question to ask before any package goes in: who signed it, and was it changed on the way?
 
 ## The examples
 
@@ -50,7 +50,3 @@ The idea of a package hasn't changed in fifteen years, and a `.package` file fro
 <ThenNow
   then="A deleted workflow was gone unless you had an export or a backup."
   now="Deleted workflows, actions, policies, and configuration and resource elements go to <b>Deleted Items</b>, where you can restore them." />
-
-## Still to come
-
-<ComingSoon topics={["Signing and trusting packages"]} />
