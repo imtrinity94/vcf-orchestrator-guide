@@ -1,0 +1,157 @@
+---
+title: Tags
+description: Recipe 7.4 — label your own content so you can find it, and tag plug-in objects from scripts so workflows can find them later. Workflow tags in the client, private and global tags in scripts, and tag queries from the REST API.
+sidebar:
+  label: 7.4 Tags
+  order: 4
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+A busy Orchestrator holds thousands of workflows and actions, most of them from plug-ins. Folders sort them one way. **Tags** sort them any other way you like: by team, by purpose, by the system they touch, by whether they're safe to run in production. A tag is a short label, and one object can carry many.
+
+Orchestrator has two kinds of tag that are easy to confuse. The first kind is the tags you set on your own workflows in the client, so that the library search can find them. The second kind is tags you set from scripts on any object Orchestrator knows about, including plug-in objects such as a vCenter VM, so that a later workflow can ask "which objects carry this tag?". This recipe does both. Neither kind is a vSphere tag: Orchestrator keeps its tags in its own database, and vCenter never sees them.
+
+<Recipe type="ready">
+
+- The workflows from recipes 7.2 and 7.3 in **VCF Orchestrator Guide/Chapter 7**, and `vc01.vmw.lab` registered (recipe 1.9).
+- The action module `com.vcfguide.chapter7`. Create it under **Library** > **Actions** if it isn't there yet.
+- A login with administrator rights on `vco01.vmw.lab`, for the global tags in steps 9 to 12.
+
+</Recipe>
+
+<Recipe type="how">
+
+**Tag your own workflows**
+
+1. Go to **Library** > **Workflows** and open **Count powered-on VMs** from recipe 7.3.
+2. On the **General** tab, find the **Tags** field. Type `vcfguide` and press **Enter**, then add `read-only` and `vcenter` in the same way. Click **Save**.
+3. Open **List VMs by name** and give it the same three tags. Save it.
+
+<Figure n="7.10" caption="Tags on a workflow's General tab."
+  capture="Workflow editor for <b>Count powered-on VMs</b>, <b>General</b> tab: the <b>Tags</b> field holding <code>vcfguide</code>, <code>read-only</code> and <code>vcenter</code> as separate chips, with the <b>Version</b>, <b>Folder</b> and <b>Description</b> fields around it." />
+
+4. Go back to **Library** > **Workflows**. In the search or filter box, filter on the tag `read-only`. Only the two workflows you just tagged are listed, whatever folder they're in.
+
+<Figure n="7.11" caption="Filtering the workflow library on a tag."
+  capture="<b>Library > Workflows</b>, card or list view, filtered on the tag <code>read-only</code>: the two cards <b>Count powered-on VMs</b> and <b>List VMs by name</b>, each showing its tags, and nothing else listed." />
+
+<Verify>Record on 9.1.1 how the library is filtered by tag: a tag filter in the search box, a separate <b>Tags</b> filter, or clicking a tag on a card. Also check whether the <b>Tags</b> field on the <b>General</b> tab is offered for actions, and whether a library search for a tag also matches workflows whose name or description contains the same word.</Verify>
+
+**Tag plug-in objects from a script**
+
+5. Under **Library** > **Actions**, in the module `com.vcfguide.chapter7`, create the action `tagVm`. Give it three inputs, `vm` (`VC:VirtualMachine`), `tagName` (`string`) and `tagValue` (`string`), and the return type `void`.
+6. Enter the script and save:
+
+```javascript title="com.vcfguide.chapter7/tagVm"
+// Private tag: visible only to the user this action runs as.
+if (tagName.length < 3 || tagName.length > 64 || /\s/.test(tagName)) {
+    throw "Tag names are 3 to 64 characters with no spaces: " + tagName;
+}
+Server.tag(vm, tagName, tagValue);
+System.log("Tagged " + vm.name + " with " + tagName + " = " + tagValue);
+```
+
+7. Create a second action, `findVmsByTag`, with one input, `tagName` (`string`), and the return type `Array/VC:VirtualMachine`:
+
+```javascript title="com.vcfguide.chapter7/findVmsByTag"
+var query = [{ tag: tagName }];
+var found = Server.queryByTags(query, "VC:VirtualMachine");
+var result = [];
+for (var i = 0; i < found.length; i++) {
+    result.push(found[i]);
+}
+System.log(result.length + " VMs carry the tag " + tagName);
+return result;
+```
+
+8. Run `tagVm` on one VM in `vc01.vmw.lab` with `tagName` = `vcfguide-owner` and `tagValue` = `platform-team`. Then run `findVmsByTag` with `tagName` = `vcfguide-owner`. It returns that one VM.
+
+<Verify>Confirm the scripting signatures on 9.1.1 in the API Explorer: <code>Server.tag(object, tag, value)</code> for a private tag, <code>Server.tagGlobally(object, tag, value)</code> for a global one, <code>Server.queryByTags(tags, type)</code> with an array of objects that have a <code>tag</code> key (and optionally a <code>value</code> key), and what <code>queryByTags</code> returns: an array, or an object keyed by ID. A community example from vRO 7 queried global tags with a leading colon, as in <code>":vcfguide-owner"</code>; check whether 9.1.1 still needs it. Adjust steps 6 and 7 to match.</Verify>
+
+**Make a tag everyone can see**
+
+9. A private tag is only visible to the user who set it. A tag that other users and other workflows should rely on must be **global**. Copy `tagVm` to a new action, `tagVmGlobally`, and change the `Server.tag` line to:
+
+```javascript title="com.vcfguide.chapter7/tagVmGlobally — the changed line"
+Server.tagGlobally(vm, tagName, tagValue);
+```
+
+10. Run `tagVmGlobally` as an administrator on two VMs, with `tagName` = `vcfguide-backup` and `tagValue` = `daily`.
+11. Log in as a different user, one who isn't the administrator from step 8 but can run actions, and run `findVmsByTag` with `tagName` = `vcfguide-backup`. It returns both VMs. Run it with `vcfguide-owner`. It returns nothing, because that tag was private to the administrator who set it.
+
+<Verify>Pick the second user for step 11 in the lab. <code>svc-vcfguide@vsphere.local</code> is in <code>OrchestratorAdmins</code>, which works for the test as long as it isn't the account that ran step 8. Confirm that a private tag set by one administrator is really invisible to another administrator on 9.1.1.</Verify>
+
+<Figure n="7.12" caption="A global tag query run by a different user."
+  capture="Run of the action <b>findVmsByTag</b> as <code>svc-vcfguide@vsphere.local</code>: input <code>tagName</code> = <code>vcfguide-backup</code>, <b>Logs</b> tab with <i>2 VMs carry the tag vcfguide-backup</i>, and the returned array showing two VM names from <code>vc01.vmw.lab</code>." />
+
+**Read tags from outside**
+
+12. With the `vro` helper from recipe 7.1 loaded, list the global tags on VMs:
+
+```bash
+. vro-env.sh
+vro GET '/tags/global/VC:VirtualMachine' | jq .
+```
+
+<Verify>The <b>Tagging Service</b> in the 9.x REST API reference lists the operations <i>List global tags by type</i>, <i>List global and self tags</i>, <i>List tags by owner</i> and <i>Untag objects by tag name and owner</i>, but the reference pages don't show the paths. Find the real path of <i>List global tags by type</i> in the Swagger UI at <code>/vco/api/docs</code> on <code>vco01</code> (recipe 7.1), correct step 12, and record what the response looks like.</Verify>
+
+</Recipe>
+
+<Recipe type="works">
+
+**Two tag stores.** The tags you type on a workflow's **General** tab are part of the workflow. They're saved in its definition, travel with it in packages and Git (Chapter 6), and show up in version history. They exist to make the library searchable. Standard workflows that ship with Orchestrator carry their own tags, which is why searching for `SSH` finds the SSH workflows. You can't add tags to a standard workflow, because it's read-only. Duplicate it first.
+
+The tags you set with `Server.tag` and `Server.tagGlobally` live elsewhere: in a table in the Orchestrator database that links an object's type and ID to a tag name, an optional value, and an owner. The object itself isn't changed. That's why they work on plug-in objects, such as a `VC:VirtualMachine`, that Orchestrator doesn't own and can't modify.
+
+**Private and global.** Every scripted tag has an owner. A **private** tag belongs to the user who ran the script and is visible only to that user. A **global** tag is visible to everyone, and only administrators can create or remove one. Use private tags for a user's own bookmarks, and global tags for anything another workflow depends on.
+
+| | Workflow tags | Private tags | Global tags |
+|---|---|---|---|
+| Set with | **General** tab, **Tags** field | `Server.tag` | `Server.tagGlobally` |
+| On | Your workflows | Any object Orchestrator can reference | Any object Orchestrator can reference |
+| Seen by | Everyone who can see the workflow | The owner only | Everyone |
+| Travels in packages | Yes | No | No |
+
+**Names and values.** A tag name is 3 to 64 characters, with no spaces. The value is optional free text. Keep names in a namespace, like `vcfguide-backup`, so your tags don't collide with someone else's `backup`.
+
+**What a tag query costs.** `Server.queryByTags` asks the Orchestrator database, not the plug-in. It's quick, and it doesn't touch vCenter until you read a property of a returned object. That makes tags a cheap index: "which VMs did our provisioning workflow build?" is one query, instead of a loop over every VM in the inventory.
+
+**Tags point at IDs.** A scripted tag remembers the object's ID. If the object goes away, for example a VM is deleted, the tag stays behind, pointing at nothing. A query may return objects that no longer resolve.
+
+<Verify>Check on 9.1.1 what <code>findVmsByTag</code> returns after one of the tagged VMs is deleted from <code>vc01</code>: a null entry, an object whose properties throw, or nothing. If it's a null entry, add a null check to the loop in step 7.</Verify>
+
+<ThenNow
+  then="Tag objects in the Java client, or with the standard workflows in the library's <b>Tagging</b> folder, and search with the client's tag search."
+  now="Type workflow tags into the <b>Tags</b> field of the browser client and filter the library on them. Tag plug-in objects from scripts, or through the REST API's <b>Tagging Service</b>." />
+
+<Verify>Check whether the 9.1.1 library still has standard tagging workflows, such as <b>Tag object</b>, <b>Untag object</b> and <b>Find objects by tag</b>, and in which folder. If it does, mention them in step 5 as the no-code way to set a tag.</Verify>
+
+</Recipe>
+
+<Recipe type="more">
+
+**Tags or vSphere tags?** If the label needs to be seen in the vSphere Client, used by a storage policy, or read by another tool, it must be a vSphere tag, set in vCenter through the vAPI plug-in. Use Orchestrator tags for labels that only Orchestrator content needs. Chapter 8's recipes on vCenter workflows cover vSphere tags.
+
+**Removing tags.** `Server.untag(object, tagName)` and `Server.untagGlobally(object, tagName)` take a tag off an object. Remove the tags a workflow set when it removes the object, for example in the same workflow that deletes a VM, so that queries don't return stale IDs.
+
+<Verify>Confirm the names and parameters of <code>Server.untag</code> and <code>Server.untagGlobally</code> in the 9.1.1 API Explorer.</Verify>
+
+**Tags as a work list.** A scheduled workflow (recipe 7.7) can run `findVmsByTag("vcfguide-backup")` each night and act on whatever it returns. Adding a VM to the job means tagging it, not editing the workflow.
+
+**Tag conventions.** Agree on a short list of global tag names for your team and write them down, next to the naming conventions from this book's introduction. A tag nobody else uses is a private bookmark, however global it is.
+
+</Recipe>
+
+<Recipe type="see">
+
+- [3.1 Workflow basics](../../../chapter-3/recipes/01-workflow-basics/), for the **General** tab.
+- [7.1 The Orchestrator REST API](../01-rest-api/), for the `vro` helper.
+- [7.7 Scheduling workflows](../07-scheduling/), for a nightly job driven by tags.
+- Broadcom TechDocs (VCF 9.0): [Standard workflows in the workflow library](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/managing-workflows-in-vro/standard-workflows-in-the-workflow-library.html), on searching the library by tag and duplicating standard workflows.
+- Broadcom TechDocs: [Performing tagging operations](https://techdocs.broadcom.com/us/en/vmware-cis/aria/aria-automation/all/developing-web-services-client-for-vco-all/tagging-operations.html), on private and global tags and tag name rules.
+- Broadcom developer portal: [VCF Operations orchestrator API, Tagging Service](https://developer.broadcom.com/xapis/vcf-operations-orchestrator-api/latest/tagging-service/).
+
+</Recipe>

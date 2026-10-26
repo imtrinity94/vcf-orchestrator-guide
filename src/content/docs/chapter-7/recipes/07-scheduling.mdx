@@ -1,0 +1,154 @@
+---
+title: Scheduling workflows
+description: Recipe 7.7 — run a workflow on a timetable. Schedule a daily run from the client, choose whose identity it runs as, watch and change it under Activity > Scheduled, schedule a one-off run from a script, and manage schedules through the REST API.
+sidebar:
+  label: 7.7 Scheduling workflows
+  order: 7
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+Some work needs doing at a set time: a report every morning, a clean-up every Sunday night, a change in tonight's maintenance window. Recipe 7.3 used a policy for work at intervals. For most timetable jobs a **schedule** is simpler. It's one workflow, one set of inputs, and a recurrence, and Orchestrator starts the run when the time comes.
+
+In this recipe you schedule **Build VM report** from recipe 7.6 to run every weekday morning, look at what decides whose identity the run uses, and then do the same from a script and from the REST API. The last part is about the thing that makes schedules fail quietly: the stored credentials of the starting user.
+
+<Recipe type="ready">
+
+- The workflow **Build VM report** from recipe 7.6, in **VCF Orchestrator Guide/Chapter 7**.
+- The `vro` helper from recipe 7.1, for steps 14 and 15.
+- The time zone of `vco01.vmw.lab`. Schedules run on the server's clock, so check it under **Administration** or in the appliance's settings before you pick a time.
+
+</Recipe>
+
+<Recipe type="how">
+
+**Schedule a recurring run**
+
+1. Go to **Library** > **Workflows** and open **Build VM report**, or select its card. Click **Schedule**.
+2. Under **General**, enter the name `VM report every weekday` and the description `Builds the Chapter 7 VM report at 06:00, Monday to Friday.`
+3. Set **Starting user**. Leave it at the current user for now. **How it works** explains the three choices.
+4. Under **Scheduling**, set **Start** to tomorrow at `06:00`, and **Start if in the past** to **No**, so that a schedule saved after 06:00 waits for the next morning instead of running at once.
+5. In **Schedule**, add a recurrence that repeats every day at `06:00`, limited to Monday to Friday.
+6. **Build VM report** has no inputs, so there's no **Workflow** section. For a workflow with inputs, that section asks for the values the scheduled runs will use, as a run would.
+7. Click **Save**.
+
+<Figure n="7.18" caption="Scheduling a workflow."
+  capture="The <b>Schedule</b> dialog for <b>Build VM report</b>: <b>General</b> with name <code>VM report every weekday</code>, description, and <b>Starting user</b> open on its three choices; <b>Scheduling</b> with <b>Start</b> tomorrow at 06:00, <b>Start if in the past</b> = <b>No</b>, and a daily recurrence at 06:00 limited to Monday to Friday." />
+
+<Verify>Walk steps 1 to 7 on 9.1.1 and record the exact labels: where <b>Schedule</b> is (on the card, in the editor, or both), the wording of the three <b>Starting user</b> choices, and how a recurrence is built in <b>Schedule</b>: the recurrence types offered (for example every N minutes, hourly, daily, weekly, monthly), how days of the week are chosen, whether several times a day can be entered, and whether an end date can be set. Rewrite step 5 to match.</Verify>
+
+**Watch it and change it**
+
+8. Go to **Activity** > **Scheduled**. `VM report every weekday` is listed with its workflow, its next run time, and its state.
+9. The next morning, open **Activity** > **Workflow Runs**. A run of **Build VM report** started at 06:00, and `vcfguide-vm-report-latest.html` has a new version (recipe 7.6).
+10. To change the time, open the schedule from **Activity** > **Scheduled**, change the recurrence to `07:00`, and save. The next run time in the list moves.
+11. To stop it for a while without losing it, use the schedule's suspend or pause action, and resume it later. To remove it, click **Delete** on the schedule.
+
+<Figure n="7.19" caption="Schedules under Activity > Scheduled."
+  capture="<b>Activity > Scheduled</b>: <code>VM report every weekday</code> with workflow <b>Build VM report</b>, next run tomorrow at 06:00 (or 07:00 after step 10), state, and starting user; the schedule panel open with <b>Edit</b>, the suspend or pause action, and <b>Delete</b>." />
+
+<Verify>Record the columns of <b>Activity</b> > <b>Scheduled</b> on 9.1.1, and the actions on a schedule's panel: whether a schedule can be suspended and resumed, and the exact labels. Check whether a scheduled run shows in <b>Activity</b> > <b>Workflow Runs</b> with the schedule's name, and as which user.</Verify>
+
+**Schedule a one-off run from a script**
+
+12. Some runs should happen once, at a set time: a change at 22:00 tonight, or a clean-up the day after a VM is built. Create the action `com.vcfguide.chapter7/scheduleReportAt` with one input, `startAt` (`Date`), and the return type `Task`:
+
+```javascript title="com.vcfguide.chapter7/scheduleReportAt"
+var wf = null;
+var found = Server.getWorkflowsWithName("Build VM report");
+for (var i = 0; i < found.length; i++) {
+    if (found[i].workflowCategory.path === "VCF Orchestrator Guide/Chapter 7") {
+        wf = found[i];
+    }
+}
+if (!wf) {
+    throw "Workflow Build VM report not found in VCF Orchestrator Guide/Chapter 7";
+}
+
+var props = new Properties();
+// Inputs of the workflow go here, by name. Build VM report has none.
+props.put("__taskName", "VM report once at " + startAt.toString());
+props.put("__taskDescription", "One-off run scheduled by scheduleReportAt");
+
+var task = wf.schedule(props, startAt);
+System.log("Scheduled " + task.name + " for " + startAt);
+return task;
+```
+
+13. Run it with `startAt` set to ten minutes from now. The schedule appears in **Activity** > **Scheduled** with the name from `__taskName`. Ten minutes later it runs once and doesn't run again.
+
+<Verify>Confirm on 9.1.1 that <code>Server.getWorkflowsWithName</code> and <code>workflowCategory.path</code> work as the action assumes, that <code>Workflow.schedule(properties, date)</code> returns a <code>Task</code> with a <code>name</code>, that the <code>__taskName</code> and <code>__taskDescription</code> properties still set the schedule's name and description, and as which <b>Starting user</b> a schedule made from a script runs. Also check <code>Workflow.scheduleRecurrently</code> in the API Explorer: its parameters, and whether it's the way to make a recurring schedule from a script.</Verify>
+
+**Manage schedules through the REST API**
+
+14. List the schedules on the server:
+
+```bash
+. vro-env.sh
+vro GET '/tasks' | jq '.link[] | [(.attributes[] | select(.name=="name") | .value), .href]'
+```
+
+15. A pipeline that deploys a new version of the report workflow can remove the old schedule and create a new one. Delete a schedule by its ID:
+
+```bash
+TASK_ID="<ID from the href>"
+vro DELETE "/tasks/$TASK_ID"
+```
+
+<Verify>The 9.x REST reference lists, in the <b>Task Service</b>, <i>Retrieves a list of tasks</i>, <i>Creates a new task</i>, <i>Retrieves a single task</i>, <i>Updates an existing task</i>, <i>Deletes a task</i>, an operation that updates a task's credentials (<code>PATCH</code>), and <i>Retrieves the execution history for a task</i>. Check the paths and the response shape in the Swagger UI on <code>vco01</code>, correct steps 14 and 15, and add an example body for creating a task with a recurrence.</Verify>
+
+</Recipe>
+
+<Recipe type="works">
+
+**A schedule is a task.** In the API and in scripts, a schedule is a `Task`: a workflow, a set of input values, a start time, a recurrence, and a starting user. Orchestrator's scheduler checks its tasks and starts a normal workflow run when one is due. The run is like any other: it shows in **Activity** > **Workflow Runs**, it has a log and variables, and it counts against the server's limit of concurrent runs.
+
+**Start if in the past.** A schedule's start time can be in the past when you save it, or pass while the server is down. **Yes** runs the workflow at once in that case. **No** waits for the next time in the recurrence. Choose **No** for reports, so that a server restart at 09:00 doesn't send the morning report twice. Choose **Yes** for work that must happen once, such as a change that was due during the outage.
+
+**Whose identity the run uses.** A scheduled run happens when nobody is logged in, so Orchestrator keeps a way to authenticate as the **Starting user**:
+
+| Starting user | The run authenticates as | Watch out for |
+|---|---|---|
+| The current user | You, with credentials Orchestrator stored when you saved | Your account changing: a new password, leaving the team, a disabled account |
+| The Orchestrator system user | Orchestrator's own service identity | Runs that aren't traceable to a person, and rights that may differ from yours |
+| An API token | The account that owns the token | The token expiring or being revoked |
+
+Pick the one that will still be valid in a year. For production jobs, an API token that belongs to a service account, such as `svc-vcfguide@vsphere.local` on a standalone appliance or a service account in VCF Automation, survives people changing jobs.
+
+**When schedules stop.** A schedule whose credentials stop working doesn't fail loudly. It just stops starting runs, or its runs fail at the first step. Broadcom's 9.0 known issues list two cases. On a standalone Orchestrator that uses VCF SSO authentication, scheduled workflows stopped running some 30 to 60 minutes after the user who scheduled them stopped using the client. On the Orchestrator embedded in VCF Automation, scheduling with the service account or an API token failed with *Can not login in VMware Cloud Foundation Automation with username and password*. Broadcom KB 445644 has a workaround for the embedded case and says it's fixed in VCF Automation 9.1.1, after which an API token for scheduling takes the form `{apiToken}@orgName:{tenantName}`.
+
+<Verify>Check which of these issues apply to the lab: the VCF Automation version at <code>auto.vmw.lab</code> (9.1.1 or later carries the KB 445644 fix), and whether a schedule on <code>vco01</code> with VCF SSO authentication (recipe 1.6) keeps running overnight on 9.1.1. Schedule <b>Build VM report</b> on the embedded Orchestrator with each <b>Starting user</b> choice and record which ones work.</Verify>
+
+<ThenNow
+  then="Schedule a workflow in the Java client with right-click > <b>Schedule workflow</b>, and find it in the <b>Scheduler</b> view. The run used the credentials of the user who scheduled it."
+  now="Click <b>Schedule</b> on the workflow in the browser client, choose the <b>Starting user</b> (yourself, the Orchestrator system user, or an API token), and manage schedules under <b>Activity</b> > <b>Scheduled</b>." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**Schedule or policy?** Use a schedule for "run this workflow at these times". Use a policy (recipe 7.3) when you need several handlers that share variables, start and stop hooks, or events from a plug-in. A schedule has nothing to keep running, so there's less to go wrong after a restart.
+
+**Inputs that change.** A schedule stores its input values when you save it. If a value should be worked out at run time, such as yesterday's date, don't pass it as an input. Let the workflow calculate it, or read it from a configuration element (recipe 4.7).
+
+**Don't let runs pile up.** If a run takes longer than the interval, the next one starts anyway, and two runs work on the same thing. Choose an interval longer than the workflow takes, or protect the work with a lock (recipe 7.5) and make the second run give up instead of waiting.
+
+**Tags as the job list.** Combine this recipe with recipe 7.4: a nightly schedule runs a workflow that calls `findVmsByTag("vcfguide-backup")` and acts on each VM it returns. Adding a VM to the job is a tag, not a change to the schedule.
+
+**Watch your schedules.** Because a broken schedule fails quietly, check **Activity** > **Scheduled** after an upgrade, a certificate change, or a change to the authentication provider. A small daily workflow that compares each schedule's last run with its recurrence, through the **Task Service**, catches the ones that stopped.
+
+</Recipe>
+
+<Recipe type="see">
+
+- [3.8 Asynchronous and nested workflows](../../../chapter-3/recipes/08-async-and-nested/), for the **Schedule workflow** element on the canvas.
+- [7.3 Policies and event triggers](../03-policies/), for work at intervals with more than one handler.
+- [7.5 Locks](../05-locks/), to keep overlapping runs apart.
+- Broadcom TechDocs (VCF 9.1): [Schedule workflows in VCF Operations orchestrator](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-1/configuration-of-vmware-cloud-foundation-operations-orchestrator/managing-workflows-in-vro/schedule-workflows-in-the-vrealize-orchestrator-operations-client.html), and [Edit scheduled task](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-1/configuration-of-vmware-cloud-foundation-operations-orchestrator/managing-workflows-in-vro/schedule-workflows-in-the-vrealize-orchestrator-operations-client/edit-scheduled-task-in-the-vrealize-orchestrator-operations-client.html).
+- Broadcom TechDocs: [VCF Automation 9.0 known issues](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/release-notes/vmware-cloud-foundation-90-release-notes/component-specific/vcfa-90-known-issues.html), for the scheduling issues described in **How it works**.
+- Broadcom KB [445644](https://knowledge.broadcom.com/external/article/445644/vcf-automation-embedded-orchestrator-sch.html): scheduling with an API token on the embedded Orchestrator fails.
+- Broadcom developer portal: [VCF Operations orchestrator API, Task Service](https://developer.broadcom.com/xapis/vcf-operations-orchestrator-api/latest/task-service/).
+
+</Recipe>

@@ -1,0 +1,185 @@
+---
+title: Locks
+description: Recipe 7.5 — stop runs that work at the same time from overwriting each other. See a lost update happen, fix it with the LockingSystem, make sure a failed run gives its lock back, and find and release locks that were left behind.
+sidebar:
+  label: 7.5 Locks
+  order: 5
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+Orchestrator runs many workflows at once. Usually that's what you want. It goes wrong when two runs change the same thing at the same time: both read a counter that says 7, both write 8, and one run's work is lost. The same happens with a shared file, a pool of IP addresses, a ticket number, or a vCenter folder two runs try to create at the same moment.
+
+A **lock** makes runs take turns. Before a run touches the shared thing, it asks Orchestrator for a lock with a name everyone agrees on. If another run holds it, it waits. When it's done, it gives the lock back, and the next run goes. In this recipe you watch five runs lose updates to a counter, fix it with a lock, and then deal with the part that bites in production: a run that fails while it holds a lock.
+
+<Recipe type="ready">
+
+- The `vro` helper from recipe 7.1 and the start-a-run steps from recipe 7.2, to start five runs at once.
+- The folders **VCF Orchestrator Guide/Chapter 7** under **Library** > **Workflows** and under **Assets** > **Configurations**.
+- Recipe 4.7, if you haven't worked with configuration elements from scripts before.
+
+</Recipe>
+
+<Recipe type="how">
+
+**A shared counter**
+
+1. Go to **Assets** > **Configurations**, open **VCF Orchestrator Guide/Chapter 7**, and click **New Configuration**. Name it `vcfguide-ch7-state`, and add one variable, `runCount`, of type `number`, with the value `0`. Save it.
+2. In **VCF Orchestrator Guide/Chapter 7**, create the workflow **Count a run**, with no inputs. Add a scriptable task called `Add one`:
+
+```javascript title="Count a run — Add one (no lock)"
+var category = Server.getConfigurationElementCategoryWithPath("VCF Orchestrator Guide/Chapter 7");
+var state = null;
+for (var i = 0; i < category.configurationElements.length; i++) {
+    if (category.configurationElements[i].name === "vcfguide-ch7-state") {
+        state = category.configurationElements[i];
+    }
+}
+var before = state.getAttributeWithKey("runCount").value;
+System.sleep(2000); // makes the gap between read and write wide enough to see
+state.setAttributeWithKey("runCount", before + 1);
+System.log("runCount " + before + " -> " + (before + 1));
+```
+
+3. Save the workflow and copy its ID from the address bar, or look it up as in recipe 7.1.
+
+**Watch it lose updates**
+
+4. In a shell, load the helper and start five runs at the same moment:
+
+```bash
+. vro-env.sh
+WF_ID="<ID of Count a run>"
+for n in 1 2 3 4 5; do
+  vro POST "/workflows/$WF_ID/executions" \
+    -H "Content-Type: application/json" \
+    --data '{"parameters":[]}' &
+done
+wait
+```
+
+5. When the five runs have finished, open `vcfguide-ch7-state`. `runCount` is less than `5`, often `1`. Open the runs under **Activity** > **Workflow Runs**: several of them logged the same line, *runCount 0 -> 1*. They all read the old value before any of them wrote the new one.
+
+<Figure n="7.13" caption="Five runs, one surviving update."
+  capture="<b>Activity > Workflow Runs</b> filtered on <b>Count a run</b>: five runs started within the same second, all <b>Completed</b>; one of them open on the <b>Logs</b> tab with <i>runCount 0 -> 1</i>; beside it, <code>vcfguide-ch7-state</code> with <code>runCount</code> = <code>1</code>." />
+
+**Fix it with a lock**
+
+6. Set `runCount` back to `0` and save the configuration element.
+7. Change the end of the `Add one` script, from the line that reads `before`, so that the read and the write happen under a lock:
+
+```javascript title="Count a run — Add one (with a lock)"
+var lockId = "vcfguide-ch7-state";
+var owner = workflow.id;          // this run's ID
+LockingSystem.lockAndWait(lockId, owner);
+try {
+    var before = state.getAttributeWithKey("runCount").value;
+    System.sleep(2000);
+    state.setAttributeWithKey("runCount", before + 1);
+    System.log("runCount " + before + " -> " + (before + 1));
+} finally {
+    LockingSystem.unlock(lockId, owner);
+}
+```
+
+8. Save, and start five runs again with the loop from step 4. This time the runs take about ten seconds in all, because they take turns, and `runCount` ends at `5`. Each run's log has a different line, from *runCount 0 -> 1* to *runCount 4 -> 5*.
+
+<Figure n="7.14" caption="The same five runs, taking turns."
+  capture="<b>Activity > Workflow Runs</b> filtered on <b>Count a run</b>: five runs with start times in the same second and end times about two seconds apart; the <b>Logs</b> tabs of two runs side by side, <i>runCount 2 -> 3</i> and <i>runCount 3 -> 4</i>; <code>vcfguide-ch7-state</code> with <code>runCount</code> = <code>5</code>." />
+
+<Verify>Run steps 4 to 8 on 9.1.1, on <code>vco01</code> and, if you can, on the three-node cluster from recipe 2.4, and record the final <code>runCount</code> with and without the lock. Also confirm that <code>setAttributeWithKey</code> is visible to the next run at once (recipe 4.7 has the same check), because a write that's cached per node would defeat the lock on a cluster.</Verify>
+
+**Don't wait for ever**
+
+9. `lockAndWait` waits as long as it takes. If a run never gives the lock back, every run after it waits too. When waiting isn't acceptable, try for the lock a limited number of times instead. Replace the `lockAndWait` line with:
+
+```javascript title="Count a run — Add one, giving up after a minute"
+var tries = 0;
+while (!LockingSystem.lock(lockId, owner)) {
+    tries++;
+    if (tries >= 30) {
+        throw "Gave up waiting for lock " + lockId + " after " + (tries * 2) + " seconds";
+    }
+    System.sleep(2000);
+}
+```
+
+**Find and release a lock that was left behind**
+
+10. Simulate a run that dies with the lock held. Duplicate **Count a run** as **Hold the lock**, and in its script remove the `try` and `finally` and the `unlock` call, so the run takes the lock and never gives it back. Run it once.
+11. Run **Count a run**. With step 9's loop it fails after a minute with *Gave up waiting for lock vcfguide-ch7-state*.
+12. List the locks the server holds. Create the action `com.vcfguide.chapter7/listLocks` with no inputs and the return type `Array/string`:
+
+```javascript title="com.vcfguide.chapter7/listLocks"
+var locks = LockingSystem.retrieveAll();
+for (var i = 0; i < locks.length; i++) {
+    System.log(locks[i]);
+}
+return locks;
+```
+
+Run it. One entry names the lock `vcfguide-ch7-state` and the ID of the **Hold the lock** run as its owner.
+
+13. Release that one lock, and no other, with a one-line script run as an administrator: `LockingSystem.unlock("vcfguide-ch7-state", "<owner from step 12>");`. Run **Count a run** again. It succeeds.
+14. Delete **Hold the lock**.
+
+<Figure n="7.15" caption="A lock left behind by a run that didn't release it."
+  capture="Run of the action <b>listLocks</b>, <b>Logs</b> tab: one entry naming <code>vcfguide-ch7-state</code> and the token ID of the <b>Hold the lock</b> run as owner; behind it, the failed run of <b>Count a run</b> with <i>Gave up waiting for lock vcfguide-ch7-state after 60 seconds</i>." />
+
+<Verify>Confirm on 9.1.1 what <code>LockingSystem.retrieveAll()</code> returns and how each entry shows the lock ID and owner, and whether the library has standard workflows for locks, for example <b>Display all locks</b> and <b>Release all locks</b> in a <b>Locking</b> folder. If it does, mention them in steps 12 and 13. Also record whether a lock is freed when the run that holds it is cancelled from <b>Activity</b> > <b>Workflow Runs</b>.</Verify>
+
+</Recipe>
+
+<Recipe type="works">
+
+**A lock is a name and an owner.** The `LockingSystem` object keeps a list of locks on the Orchestrator server. Each one is just two strings: the lock ID, which you choose, and the owner, which says who holds it. Orchestrator doesn't know or care what the lock protects. Every workflow that touches the shared thing must ask for the same lock ID, or the lock protects nothing.
+
+| Call | What it does |
+|---|---|
+| `LockingSystem.lock(id, owner)` | Takes the lock if it's free and returns `true`. Returns `false` at once if someone else holds it. |
+| `LockingSystem.lockAndWait(id, owner)` | Takes the lock, waiting for as long as it takes. |
+| `LockingSystem.unlock(id, owner)` | Releases the lock, if this owner holds it. |
+| `LockingSystem.retrieveAll()` | Lists the locks held on the server. |
+| `LockingSystem.unlockAll()` | Releases every lock on the server, whoever holds it. |
+
+**The owner.** Use `workflow.id`, the ID of the run, as the owner. It's unique to the run, and it's the first thing you'll want to know when a lock is stuck: which run took it. Don't use the workflow's name or a fixed string, because then two runs of the same workflow count as the same owner and the lock doesn't keep them apart. In an action, `workflow` isn't available. Pass the owner in as an input instead.
+
+**Locks outlive runs.** A lock is released only when someone calls `unlock`. Orchestrator doesn't release it when the run that took it fails, is cancelled, or the server restarts. The `try`/`finally` in step 7 releases the lock when the script throws. A run that's cancelled, or a node that dies in the middle, still leaves the lock behind, which is why steps 9 and 12 matter: a bounded wait so the queue doesn't freeze, and a way to see who holds what.
+
+<Verify>The statements that locks are kept in the Orchestrator database, survive a restart of the <code>vco-app</code> pods, and are shared by all nodes of a cluster are inferred, not documented. Check them on 9.1.1: take a lock with <b>Hold the lock</b>, restart the pods, and run <code>listLocks</code>; on the cluster from recipe 2.4, take the lock on one node and try it from a run on another.</Verify>
+
+**Waiting costs little.** `lockAndWait`, and the `System.sleep` in step 9, keep the run in the **Running** state but don't use the processor while they wait. A queue of runs waiting for a lock still counts against the server's limit of concurrent runs. Keep what you do under a lock short, and do the slow work, such as cloning a VM, outside it.
+
+**Locks and the canvas.** Step 7 takes and releases the lock in one scriptable task. When the protected work spans several elements, take the lock in a scriptable task at the start, release it in a scriptable task at the end, and release it again in the workflow's error path (recipe 3.4), so that a failure in any element gives the lock back.
+
+<ThenNow
+  then="Lock with <code>LockingSystem</code> in scripts, and use the <b>Locking</b> workflows in the library to look at and release locks."
+  now="The <code>LockingSystem</code> calls are the same in 9.x. We found no page for locks in the browser client, so a short action like <code>listLocks</code> is the way to see who holds what." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**Never call `unlockAll` from a workflow.** It releases every lock on the server, including locks other teams' runs hold right now, and lets their runs collide. Keep it for the moment after an outage when an administrator has checked that no run should be holding anything.
+
+**Name locks after what they protect.** `vcfguide-ch7-state` says what's locked. A lock per object, such as `vcfguide-vm-` followed by a VM's ID, lets runs that touch different VMs go in parallel and only queues the ones that touch the same VM.
+
+**One lock at a time.** If a run takes lock A and then waits for lock B, while another run holds B and waits for A, both wait for ever. Take one lock at a time where you can. Where you can't, every workflow must take them in the same order, for example sorted by name.
+
+**Locks and configuration elements.** Recipe 4.7 warned that runs updating the same configuration element at once can lose updates. This recipe is the fix. If many runs update a value, consider whether it should be in a configuration element at all. A database (recipe 5.4) has its own transactions and locking, and handles many writers better.
+
+**Locks don't cross servers.** A lock on `vco01` means nothing to the Orchestrator at `auto.vmw.lab`. If two Orchestrators can change the same thing, the lock must live somewhere both can reach, such as a row in a shared database.
+
+</Recipe>
+
+<Recipe type="see">
+
+- [3.4 Handling errors](../../../chapter-3/recipes/04-handling-errors/), for releasing a lock on the error path.
+- [4.7 Working with configuration elements in code](../../../chapter-4/recipes/07-configuration-elements/), for the configuration element calls used here.
+- [7.2 Starting workflows from scripts](../02-starting-workflows/), for starting runs from a shell.
+- Marc Huppert, [Process locking made easy in VCF Automation](https://vcdx181.com/2025/03/13/process-locking-made-easy-in-vcf-automation/), on the `LockingSystem` in VCF Automation's Orchestrator.
+- [vRO Locking System](https://vra4u.wordpress.com/2019/04/29/vrolockingsystem/), a short example of `lock`, `lockAndWait`, `unlock` and `unlockAll`, and of releasing a lock on the error path.
+
+</Recipe>

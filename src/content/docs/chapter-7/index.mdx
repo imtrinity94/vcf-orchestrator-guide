@@ -1,22 +1,25 @@
 ---
 title: Advanced operations
-description: Chapter 7 — driving Orchestrator from outside the client and letting it start work on its own. The REST API, starting workflows from scripts, policies, and the server-side tools that keep automation tidy.
+description: Chapter 7 — driving Orchestrator from outside the client and letting it start work on its own. The REST API, starting workflows from scripts, policies, tags, locks, resource elements, and schedules.
 sidebar:
   label: Introduction
 ---
 import Opener from '../../../components/Opener.astro';
 import ThenNow from '../../../components/ThenNow.astro';
-import ComingSoon from '../../../components/ComingSoon.astro';
 
 <Opener n={7} recipes={[
   { title: 'The Orchestrator REST API', href: 'recipes/01-rest-api/' },
   { title: 'Starting workflows from scripts', href: 'recipes/02-starting-workflows/' },
   { title: 'Policies and event triggers', href: 'recipes/03-policies/' },
+  { title: 'Tags', href: 'recipes/04-tags/' },
+  { title: 'Locks', href: 'recipes/05-locks/' },
+  { title: 'Resource elements', href: 'recipes/06-resource-elements/' },
+  { title: 'Scheduling workflows', href: 'recipes/07-scheduling/' },
 ]} />
 
 Until now, almost everything in this book started with a click in the Orchestrator Client. In real operations that's the exception. Workflows are started by pipelines, by scheduled jobs on other servers, by other products, and by Orchestrator itself when something happens. This chapter is about those starts: driving Orchestrator from outside, and letting it act on its own.
 
-Recipe 7.1 opens the REST API that the client itself is built on, and shows how to authenticate to both kinds of Orchestrator in the lab, the standalone appliance and the one embedded in VCF Automation. Recipe 7.2 uses it to start a workflow from a shell script and from PowerShell, wait for it, and read its result. Recipe 7.3 turns the direction round: a policy that runs a workflow every few minutes without anyone starting it, and the plug-in events a policy can listen to. The recipes still to come cover the server-side tools that keep this kind of automation in order: tags, locks, resource elements, and schedules.
+Recipe 7.1 opens the REST API that the client itself is built on, and shows how to authenticate to both kinds of Orchestrator in the lab, the standalone appliance and the one embedded in VCF Automation. Recipe 7.2 uses it to start a workflow from a shell script and from PowerShell, wait for it, and read its result. Recipe 7.3 turns the direction round: a policy that runs a workflow every few minutes without anyone starting it, and the plug-in events a policy can listen to. The last four recipes cover the server-side tools that keep this kind of automation in order. Recipe 7.4 labels content and plug-in objects with tags, so that workflows can find them. Recipe 7.5 uses locks to stop runs that work at the same time from overwriting each other. Recipe 7.6 keeps whole files, such as an HTML report template, on the server as resource elements. Recipe 7.7 puts a workflow on a timetable, and looks at the stored credentials that decide whether a schedule keeps running.
 
 ## The examples
 
@@ -28,8 +31,14 @@ Recipe 7.1 opens the REST API that the client itself is built on, and shows how 
 | Policy, in **VCF Orchestrator Guide/Chapter 7** | **VCF Guide VM count**, with the policy run `VM count every 5 minutes` |
 | Account for scripts on `vco01.vmw.lab` | `svc-vcfguide@vsphere.local`, a member of `OrchestratorAdmins` |
 | Shell helpers | `vro-env.sh` and `run-workflow.sh`, written in recipes 7.1 and 7.2 |
+| Action module | `com.vcfguide.chapter7`, with `tagVm`, `tagVmGlobally`, `findVmsByTag`, `listLocks` and `scheduleReportAt` |
+| Workflows for locks and reports | **Count a run** (recipe 7.5) and **Build VM report** (recipe 7.6) |
+| Configuration element, in **VCF Orchestrator Guide/Chapter 7** | `vcfguide-ch7-state`, holding the counter for recipe 7.5 |
+| Resource elements, in **VCF Orchestrator Guide/Chapter 7** | `vcfguide-vm-report.html` (template) and `vcfguide-vm-report-latest.html` (result) |
+| Tags | `vcfguide`, `read-only`, `vcenter` on workflows; `vcfguide-owner` (private) and `vcfguide-backup` (global) on VMs |
+| Schedule | `VM report every weekday`, running **Build VM report** |
 
-The API examples run against `vco01.vmw.lab` with Basic authentication, and against the Orchestrator embedded in VCF Automation at `auto.vmw.lab` with a bearer token. They need a Linux or macOS shell with `curl` and `jq`, or PowerShell 7. Every workflow in the chapter only reads from `vc01.vmw.lab`. JavaScript samples are plain ES5.1.
+The API examples run against `vco01.vmw.lab` with Basic authentication, and against the Orchestrator embedded in VCF Automation at `auto.vmw.lab` with a bearer token. They need a Linux or macOS shell with `curl` and `jq`, or PowerShell 7. Every workflow in the chapter only reads from `vc01.vmw.lab`. Recipe 7.4 sets Orchestrator tags on a few VMs, which vCenter never sees. JavaScript samples are plain ES5.1.
 
 ## What changed since vRO 7
 
@@ -43,6 +52,6 @@ The REST API has been the way into Orchestrator for more than ten years, and cal
   then="Build policies in the Java client, often from a policy template shipped with a plug-in."
   now="Build policies under <b>Library</b> > <b>Policies</b> in the browser client, and watch them under <b>Activity</b> > <b>Policy Runs</b>. Policies made in 8.x may need to be recreated after the upgrade to 9.x." />
 
-## Still to come in this chapter
-
-<ComingSoon topics={["Tags","Locks","Resource elements","Scheduling"]} />
+<ThenNow
+  then="Schedule a workflow from the Java client; the run used the stored credentials of whoever scheduled it."
+  now="Click <b>Schedule</b> on the workflow, choose the <b>Starting user</b> (yourself, the Orchestrator system user, or an API token), and manage schedules under <b>Activity</b> > <b>Scheduled</b>." />
