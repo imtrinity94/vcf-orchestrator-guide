@@ -91,7 +91,13 @@ export default defineConfig({
             { autogenerate: { directory: 'chapter-7/recipes' } },
           ],
         },
-        { label: '8. Orchestrator in VCF', slug: 'chapter-8', badge: { text: 'Soon', variant: 'default' } },
+        {
+          label: '8. Orchestrator in VCF',
+          items: [
+            { label: 'Introduction', slug: 'chapter-8' },
+            { autogenerate: { directory: 'chapter-8/recipes' } },
+          ],
+        },
       ],
     }),
   ],

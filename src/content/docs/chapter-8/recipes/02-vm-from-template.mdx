@@ -1,0 +1,214 @@
+---
+title: Provisioning a VM from a template
+description: Recipe 8.2 — clone a VM from a vCenter template. Use a library clone workflow, then build your own workflow that applies a guest customization specification, sets the size, waits for the clone and for the guest's IP address, and offers only templates in its form.
+sidebar:
+  label: 8.2 Provisioning a VM from a template
+  order: 2
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+Building a VM from a template is the classic Orchestrator job, and still one of the most common. The vSphere Client can do it in a wizard, but a workflow can do it the same way every time, from a script, a pipeline, or a request portal, and then carry on with the next steps: register the VM in DNS, add it to backup, tell the requester.
+
+In this recipe you clone `tpl-linux-01` twice. First with a library workflow, to see what's involved. Then with **Provision a VM from a template**, a workflow of your own that applies the guest customization specification `vcfguide-linux`, sets the number of CPUs and the memory, waits for the clone to finish, and waits again until the new VM reports an IP address. Recipe 8.3 puts an approval in front of it.
+
+<Recipe type="ready">
+
+- The actions `findVmByName` and `waitForTask` from recipe 8.1.
+- A Linux template in `vc01.vmw.lab`, here `tpl-linux-01`, with VMware Tools (or open-vm-tools) installed. Guest customization needs them.
+- A guest customization specification in vCenter, here `vcfguide-linux`, made in the vSphere Client under **Policies and Profiles** > **VM Customization Specifications**. Set the computer name to **Use the virtual machine name**, the time zone of your choice, and one NIC with DHCP.
+- A VM folder `vcfguide`, and a cluster and datastore with room for two small VMs.
+
+</Recipe>
+
+<Recipe type="how">
+
+**Clone with a library workflow**
+
+1. Go to **Library** > **Workflows** and open the folder **Library** > **vCenter** > **Virtual Machine management** > **Clone**. It holds **Clone virtual machine, no customization**, **Clone virtual machine from properties**, and **Customize virtual machine from properties**. The folders beside it hold clones with Linux or Windows customization and linked clones.
+2. Run **Clone virtual machine, no customization**. Pick `tpl-linux-01` as the VM to clone, enter the name `vcfguide-clone-01`, choose the folder `vcfguide`, a host or resource pool in the cluster, and the datastore, and turn on power-on.
+3. Click **Run**. The vSphere Client shows a *Clone virtual machine* task. When the run completes, `vcfguide-clone-01` is in the `vcfguide` folder, with the template's name inside the guest, because nothing was customized.
+4. Delete `vcfguide-clone-01` in the vSphere Client, or with the library workflow **Delete virtual machine**.
+
+<Verify>On 9.1.1, record the folder path and the input labels of <b>Clone virtual machine, no customization</b> (in particular whether it asks for a host, a resource pool, or both), and the exact name of <b>Delete virtual machine</b>.</Verify>
+
+**Offer only templates in the form**
+
+5. Create the action `listTemplates` in `com.vcfguide.chapter8`, with no inputs and the return type `Array/VC:VirtualMachine`:
+
+```javascript title="com.vcfguide.chapter8/listTemplates"
+var templates = [];
+var vms = VcPlugin.getAllVirtualMachines();
+for (var i = 0; i < vms.length; i++) {
+    var config = vms[i].config;
+    // config is null for VMs vCenter can't read, such as orphaned ones
+    if (config && config.template) {
+        templates.push(vms[i]);
+    }
+}
+System.log(templates.length + " templates found");
+return templates;
+```
+
+**Build the clone**
+
+6. Create the action `cloneFromTemplate` in `com.vcfguide.chapter8`, with the return type `VC:Task` and these inputs:
+
+| Input | Type |
+|---|---|
+| `template` | `VC:VirtualMachine` |
+| `vmName` | `string` |
+| `folder` | `VC:VmFolder` |
+| `cluster` | `VC:ClusterComputeResource` |
+| `datastore` | `VC:Datastore` |
+| `specName` | `string` |
+| `cpus` | `number` |
+| `memoryMb` | `number` |
+
+```javascript title="com.vcfguide.chapter8/cloneFromTemplate"
+if (!template.config || !template.config.template) {
+    throw template.name + " isn't a template";
+}
+
+// Refuse a name that's already taken, in any registered vCenter.
+var taken = VcPlugin.getAllVirtualMachines(null, "xpath:name='" + vmName + "'");
+if (taken && taken.length > 0) {
+    throw "A VM called " + vmName + " already exists";
+}
+
+// Where the clone goes
+var relocate = new VcVirtualMachineRelocateSpec();
+relocate.pool = cluster.resourcePool;
+relocate.datastore = datastore;
+
+// What changes in the clone's hardware
+var config = new VcVirtualMachineConfigSpec();
+config.numCPUs = cpus;
+config.memoryMB = memoryMb;
+
+var spec = new VcVirtualMachineCloneSpec();
+spec.location = relocate;
+spec.config = config;
+spec.template = false;
+spec.powerOn = true;
+
+// The guest customization specification, read from the template's vCenter
+if (specName) {
+    var manager = template.sdkConnection.customizationSpecManager;
+    if (!manager.doesCustomizationSpecExist(specName)) {
+        throw "No customization specification called " + specName +
+              " in " + template.sdkConnection.name;
+    }
+    spec.customization = manager.getCustomizationSpec(specName).spec;
+}
+
+System.log("Cloning " + template.name + " to " + vmName + " (" + cpus +
+           " vCPU, " + memoryMb + " MB, spec " + (specName || "none") + ")");
+return template.cloneVM_Task(folder, vmName, spec);
+```
+
+7. Create the action `waitForGuestIp` in `com.vcfguide.chapter8`, with the inputs `vm` (`VC:VirtualMachine`) and `timeoutSeconds` (`number`), and the return type `string`:
+
+```javascript title="com.vcfguide.chapter8/waitForGuestIp"
+var deadline = new Date().getTime() + timeoutSeconds * 1000;
+var ip = null;
+
+while (new Date().getTime() < deadline) {
+    var guest = vm.guest;
+    // Skip IPv6 link-local addresses that some guests report first
+    if (guest && guest.ipAddress && guest.ipAddress.indexOf("fe80") !== 0) {
+        ip = guest.ipAddress;
+        break;
+    }
+    System.sleep(10000);
+}
+if (!ip) {
+    throw vm.name + " reported no IP address within " + timeoutSeconds + " seconds";
+}
+System.log(vm.name + " has the IP address " + ip);
+return ip;
+```
+
+**Put it together**
+
+8. Create the workflow **Provision a VM from a template** in **VCF Orchestrator Guide/Chapter 8**. On **Inputs/Outputs**, add the eight inputs of `cloneFromTemplate` with the same names and types, and two outputs: `vm` (`VC:VirtualMachine`) and `ipAddress` (`string`). Add a variable `cloneTask` (`VC:Task`).
+9. On the **Schema** tab, add three elements in a row:
+   - The action **cloneFromTemplate**, with all eight inputs bound to the workflow inputs and its result bound to `cloneTask`.
+   - A scriptable task `Wait for the clone`, with `cloneTask` in and `vm` out:
+
+```javascript title="Provision a VM from a template — Wait for the clone"
+// A clone with customization can take several minutes
+vm = System.getModule("com.vcfguide.chapter8").waitForTask(cloneTask, 1800);
+System.log("Clone finished: " + vm.name);
+```
+
+   - The action **waitForGuestIp**, with `vm` in, `timeoutSeconds` set to the value `900`, and its result bound to `ipAddress`.
+10. On the **Input Form** tab, give `template` the value options **External source** with the action `com.vcfguide.chapter8/listTemplates`, so the field offers only templates, as in recipe 3.6. Give `specName` the default `vcfguide-linux`, `cpus` the default `1`, and `memoryMb` the default `2048`. Give `vmName` a regular expression constraint of `^[a-z][a-z0-9-]{1,14}$`, which keeps the name valid as a Linux host name.
+
+<Figure n="8.4" caption="The provisioning workflow and its form."
+  capture="<b>Schema</b> tab of <b>Provision a VM from a template</b>: Start, <b>cloneFromTemplate</b>, <b>Wait for the clone</b>, <b>waitForGuestIp</b>, End. Beside it the <b>Input Form</b> tab with <code>template</code> selected, <b>Values</b> tab showing <b>External source</b> = <code>com.vcfguide.chapter8/listTemplates</code>." />
+
+11. Run the workflow with `tpl-linux-01`, the name `vcfguide-web-01`, the folder `vcfguide`, your cluster and datastore, and the defaults for the rest.
+12. In the vSphere Client, watch the *Clone virtual machine* task, the VM powering on, and, in its **Monitor** > **Events**, the guest customization starting and finishing. The run waits in `Wait for the clone`, then in `waitForGuestIp`.
+13. When the run completes, its **Variables** tab shows `vm` = `vcfguide-web-01` and the IP address. Log in to the VM: its host name is `vcfguide-web-01`, set by the customization specification.
+
+<Figure n="8.5" caption="A finished provisioning run."
+  capture="Completed run of <b>Provision a VM from a template</b>, <b>Variables</b> tab: <code>vm</code> = <code>vcfguide-web-01</code>, <code>ipAddress</code> = a lab address; <b>Logs</b> tab with <i>Cloning tpl-linux-01 to vcfguide-web-01 (1 vCPU, 2048 MB, spec vcfguide-linux)</i>, <i>Clone finished</i>, <i>has the IP address</i>. Behind it, vSphere Client <b>Monitor > Events</b> of the new VM with <i>Started customization</i> and <i>Customization succeeded</i>." />
+
+<Verify>Run steps 5 to 13 on 9.1.1 against <code>vc01.vmw.lab</code>. Confirm in the API Explorer that <code>VC:SdkConnection</code> has <code>customizationSpecManager</code>, that the manager has <code>doesCustomizationSpecExist</code> and <code>getCustomizationSpec</code>, that <code>VcVirtualMachineRelocateSpec</code>, <code>VcVirtualMachineConfigSpec</code> and <code>VcVirtualMachineCloneSpec</code> take the properties used, that <code>waitForTask</code> returns the new <code>VC:VirtualMachine</code> for <code>cloneVM_Task</code>, and that <code>vm.guest.ipAddress</code> is filled once VMware Tools runs. Record the event names the vSphere 9 Client shows for guest customization.</Verify>
+
+</Recipe>
+
+<Recipe type="works">
+
+**The clone spec.** `cloneVM_Task` takes three things: the folder for the new VM, its name, and a `VcVirtualMachineCloneSpec`. The spec says everything else:
+
+| Part of the spec | Set to | Says |
+|---|---|---|
+| `location` | a `VcVirtualMachineRelocateSpec` | Where the clone runs and is stored: the resource pool (here the cluster's root pool), the datastore, and optionally a host |
+| `config` | a `VcVirtualMachineConfigSpec` | Hardware changes made while cloning, here CPUs and memory |
+| `customization` | the `spec` of a customization specification | What to change inside the guest: host name, network, time zone |
+| `template` | `false` | Make a VM, not another template |
+| `powerOn` | `true` | Start it when the clone is done, which also starts the customization |
+
+**Guest customization.** The customization specification is stored in vCenter, not in Orchestrator, so the people who look after templates can change it without touching the workflow. When the clone powers on, vCenter passes the settings into the guest through VMware Tools, and the guest applies them and usually reboots. That's why the clone task finishing doesn't mean the VM is ready, and why the workflow waits a second time, for the IP address.
+
+**The task result is the VM.** The clone task's `info.result` is the new VM, so `waitForTask` hands back a `VC:VirtualMachine` you can use straight away. There's no need to search for the name you just created, and no risk of finding a different VM with the same name.
+
+**Fail early.** `cloneFromTemplate` checks that the source is a template, that the name is free, and that the specification exists before it asks vCenter for anything. A request that would fail is stopped in a second with a clear message, instead of half way through a clone.
+
+<ThenNow
+  then="Clone from the vCenter library workflows, or build a <code>VcVirtualMachineCloneSpec</code> in a scriptable task, and wait with <code>vim3WaitTaskEnd</code>."
+  now="The same library workflows and scripting objects. Templates are often kept in a content library in VCF 9, which the clone workflows in this recipe don't read; see <b>There's more</b>." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**Clean up a failed build.** If the clone succeeds and `waitForGuestIp` times out, the half-built VM is left behind. Add a **Default error handler** (recipe 3.4) with a scriptable task that checks whether `vm` is set and, if it is, powers it off with `vm.powerOffVM_Task()` and deletes it with `vm.destroy_Task()`, waiting for each with `waitForTask`. Log what it removed, so the requester knows why the VM is gone.
+
+**Templates in a content library.** VCF 9 environments often keep VM templates in a content library rather than as templates in a VM folder. `cloneVM_Task` and `listTemplates` only see templates in the inventory. To deploy from a content library item, call the vSphere Automation REST API through the REST plug-in (recipe 5.2): the `vcenter/vm-template/library-items` deploy operation takes the item's ID and a placement and returns the new VM's ID.
+
+<Verify>Check whether the vSphere plug-in on 9.1.1 has library workflows or scripting objects for deploying from a content library (search the library for <code>content library</code> and the API Explorer for <code>ContentLibrary</code>). If not, test the vSphere Automation REST deploy call from a REST host for <code>vc01.vmw.lab</code> and record the request body.</Verify>
+
+**Linked clones.** For many short-lived VMs, a linked clone shares the template's disks and is created in seconds. The library has a **Linked Clone** folder with ready workflows. In your own spec, it's two more lines: set `spec.snapshot` to a snapshot of the source VM, and `relocate.diskMoveType` to `"createNewChildDiskBacking"`. The source must be a VM with a snapshot, not a template.
+
+**More than one NIC, or a fixed IP.** The library workflows **Clone, Linux with multiple NICs** and **Clone, Linux with a single NIC** build the customization in the workflow instead of reading a stored specification. Read them for the `VcCustomizationSpec` objects to fill when each VM needs its own address. Many teams keep DHCP reservations or an IPAM system instead, and pass the address in.
+
+**Don't start a hundred clones at once.** Each clone is an I/O-heavy task on the datastore. vCenter queues tasks, but a workflow that starts many clones in parallel (recipe 3.8) can still make the storage slow for everyone. Limit the number of builds running at the same time with a lock (recipe 7.5) or a fixed number of parallel runs.
+
+</Recipe>
+
+<Recipe type="see">
+
+- [8.1 Workflows against vCenter](../01-vcenter-workflows/), for `findVmByName`, `waitForTask`, and tasks.
+- [3.6 Input forms](../../../chapter-3/recipes/06-input-forms/), for value options from an action.
+- [3.4 Handling errors](../../../chapter-3/recipes/04-handling-errors/), for the default error handler.
+- [8.3 An approval process for provisioning](../03-approval-process/), which puts an approval in front of this workflow.
+- VMware documentation (Aria Automation 8.12): [Clone workflows](https://docs.vmware.com/en/VMware-Aria-Automation/8.12/Using-Automation-Orchestrator-Plugins/GUID-989788CF-72F2-418C-9024-5FE4B1457486.html), [Linked clone workflows](https://docs.vmware.com/en/VMware-Aria-Automation/8.12/Using-Automation-Orchestrator-Plugins/GUID-4EA24EC5-8E07-4456-831A-B23804E9CFEE.html), and [Linux customization clone workflows](https://docs.vmware.com/en/VMware-Aria-Automation/8.18/Using-Automation-Orchestrator-Plugins/GUID-8C648F53-D247-4E79-BC4E-A2173EA2D381.html).
+- Broadcom developer portal: [CloneVMRequestType](https://developer.broadcom.com/xapis/virtual-infrastructure-json-api/9.0/data-structures/CloneVMRequestType/) in the vSphere 9.0 Web Services API, and [VM clone](https://developer.broadcom.com/xapis/vsphere-automation-api/9.1/api/vcenter/vm__action=clone/post/) in the vSphere Automation API 9.1.
+- Broadcom TechDocs (VCF 9.0): [Configuring the vCenter Server plug-in](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/vcf-ochestrator-plugins-overview/using-the-vcenter-server-plug-in/configuring-vcenter-server.html).
+
+</Recipe>

@@ -1,9 +1,53 @@
 ---
-title: "Orchestrator in VCF"
-description: Chapter 8 of the VCF Orchestrator Guide. Coming soon.
+title: Orchestrator in VCF
+description: Chapter 8 — putting Orchestrator to work across VMware Cloud Foundation. Workflows against vCenter, provisioning VMs from templates, approvals, NSX, and the places where VCF Automation and the vSphere Client call Orchestrator.
+sidebar:
+  label: Introduction
 ---
+import Opener from '../../../components/Opener.astro';
+import ThenNow from '../../../components/ThenNow.astro';
 import ComingSoon from '../../../components/ComingSoon.astro';
 
-Putting Orchestrator to work across VMware Cloud Foundation.
+<Opener n={8} recipes={[
+  { title: 'Workflows against vCenter', href: 'recipes/01-vcenter-workflows/' },
+  { title: 'Provisioning a VM from a template', href: 'recipes/02-vm-from-template/' },
+  { title: 'An approval process for provisioning', href: 'recipes/03-approval-process/' },
+]} />
 
-<ComingSoon topics={["Workflows against vCenter","Provisioning a VM from a template","An approval process for provisioning","NSX automation","Extensibility subscriptions in VCF Automation","Workflows as catalog items","Custom resources and resource actions","The Orchestrator plug-in for the vSphere Client"]} />
+The first seven chapters built up the tools: the appliance, the canvas, scripting, plug-ins, packages, the API, and the server-side helpers. This chapter uses them for the job most people bring Orchestrator in for, which is automating the private cloud that VCF gives you.
+
+Recipe 8.1 is the base for the rest. It looks at the vSphere plug-in from the inside: the library workflows it ships with, the scripting objects that mirror the vSphere API, how to find one VM quickly in a large inventory, and how to start a vCenter task and wait for it properly. Recipe 8.2 builds on that to clone a VM from a template with a guest customization specification, first with a library workflow and then with a workflow of your own that you can call from anywhere. Recipe 8.3 wraps that workflow in a request that goes to an approver by email, waits for an answer, and builds the VM only when someone says yes.
+
+The rest of the chapter, still to come, turns to the products around Orchestrator in VCF: NSX, VCF Automation's extensibility subscriptions and catalog, and the Orchestrator plug-in for the vSphere Client.
+
+<ComingSoon topics={["NSX automation","Extensibility subscriptions in VCF Automation","Workflows as catalog items","Custom resources and resource actions","The Orchestrator plug-in for the vSphere Client"]} />
+
+## The examples
+
+| Object | Name |
+|---|---|
+| Workflow folder | **VCF Orchestrator Guide/Chapter 8** |
+| Action module | `com.vcfguide.chapter8`, with `describeVcenters`, `findVmByName`, `waitForTask`, `snapshotVm`, `listTemplates`, `cloneFromTemplate`, `waitForGuestIp` and `isAutoApproved` |
+| Workflows | **Snapshot a VM** (recipe 8.1), **Provision a VM from a template** (recipe 8.2), **Request a VM** (recipe 8.3) |
+| vCenter | `vc01.vmw.lab`, registered in recipe 1.9 |
+| Test VM, for snapshots | `vcfguide-test-01` |
+| VMs built in recipes 8.2 and 8.3 | `vcfguide-clone-01`, `vcfguide-web-01` to `vcfguide-web-05` |
+| Template, in `vc01.vmw.lab` | `tpl-linux-01`, a small Linux VM with VMware Tools, converted to a template |
+| Guest customization specification | `vcfguide-linux`, Linux, DHCP on one NIC |
+| VM folder | `vcfguide` in the lab data center, for every VM the chapter builds |
+| Configuration element, in **VCF Orchestrator Guide/Chapter 8** | `vcfguide-ch8-provisioning`, the approval settings for recipe 8.3 |
+| Approvers' group | `OrchestratorApprovers` in vSphere SSO |
+
+Recipe 8.1 creates and removes snapshots on one test VM. Recipes 8.2 and 8.3 create new VMs in the `vcfguide` folder. Use a cluster and datastore with room for a few small VMs, and delete the VMs when you're done. JavaScript samples are plain ES5.1.
+
+## What changed since vRO 7
+
+The vSphere plug-in is the oldest and most used plug-in Orchestrator has, and the way you script against it has hardly changed. A workflow that clones a VM in vRO 7 reads almost the same in 9.x. What changed is everything around it.
+
+<ThenNow
+  then="Orchestrator was often the only automation tool in the stack, and provisioning workflows were the self-service portal, run from the vSphere Web Client or the Java client."
+  now="VCF Automation is the self-service portal and calls Orchestrator for the steps it doesn't do itself. Standalone Orchestrator still runs provisioning workflows directly, for scripts, pipelines, and teams that don't use VCF Automation." />
+
+<ThenNow
+  then="Approval steps lived in workflows, as user interactions answered in the Java client or by email."
+  now="User interactions still work and are answered in the browser client or through the REST API. Requests that come through the VCF Automation catalog have their own approval policies, answered in VCF Automation." />

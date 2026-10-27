@@ -175,3 +175,16 @@ Lab: VCF 9.1, Orchestrator 9.1.1. Save PNGs at roughly 1400 px wide, crop to the
 | 7.17 | `ch07/fig-7-17.png` | **Build VM report** editor, **Variables** tab: `template`, type `ResourceElement`, value `vcfguide-vm-report.html`; beside it, a finished run's **Variables** tab with output `html` starting `<!doctype html>` and log *Report built: N of M powered on* | — |
 | 7.18 | `ch07/fig-7-18.png` | **Schedule** dialog for **Build VM report**: name `VM report every weekday`, description, **Starting user** open on its three choices; **Start** tomorrow 06:00, **Start if in the past** = **No**, daily recurrence at 06:00 Monday to Friday | Java client Schedule workflow dialog |
 | 7.19 | `ch07/fig-7-19.png` | **Activity > Scheduled**: `VM report every weekday`, workflow **Build VM report**, next run, state, starting user; schedule panel open with **Edit**, suspend or pause, **Delete** | Java client Scheduler view |
+
+## Chapter 8
+
+| Figure | File | What to capture | Replaces (old cookbook) |
+|---|---|---|---|
+| 8.1 | `ch08/fig-8-1.png` | **Library > Workflows**, tree open at **Library > vCenter > Virtual Machine management > Snapshot**; **Create a snapshot** run form with `vcfguide-test-01` picked and name `before-ch8` | Java client vCenter library tree |
+| 8.2 | `ch08/fig-8-2.png` | Run of action `describeVcenters`, **Logs** tab: one line for `vc01.vmw.lab` with full name and API version; result array with the same line | — |
+| 8.3 | `ch08/fig-8-3.png` | Completed run of **Snapshot a VM**: **Variables** tab, `vm` = `vcfguide-test-01`, output `snapshot`; **Logs** tab *Started snapshot ch8-script …*, *Task … finished*, *Snapshot ch8-script of vcfguide-test-01 is ready* | Java client snapshot workflow run |
+| 8.4 | `ch08/fig-8-4.png` | **Schema** of **Provision a VM from a template**: **cloneFromTemplate**, **Wait for the clone**, **waitForGuestIp**; **Input Form** tab, `template` selected, **Values** = **External source** `com.vcfguide.chapter8/listTemplates` | Clone workflow presentation |
+| 8.5 | `ch08/fig-8-5.png` | Completed run of **Provision a VM from a template**: `vm` = `vcfguide-web-01`, `ipAddress`; log lines *Cloning tpl-linux-01 to vcfguide-web-01 …*, *Clone finished*, *has the IP address*; behind it the vSphere Client **Monitor > Events** of the VM with the customization events | Clone workflow run |
+| 8.6 | `ch08/fig-8-6.png` | Full **Schema** of **Request a VM**: **Check the request**, **Needs approval?**, **Mail the approvers**, **Ask for approval** (red dashed exception arrow to **Tell the requester: expired**), **Approved?** with **Tell the requester: rejected**, workflow element **Provision a VM from a template**, **Tell the requester: ready** | Approval workflow schema |
+| 8.7 | `ch08/fig-8-7.png` | As a member of `OrchestratorApprovers`: **Activity > Waiting for Input**, the **Request a VM** run for `vcfguide-web-03`, answer form with **Approve this request** selected and **Reason** filled; beside it the approval mail with the request table and link | Java client user interaction answer |
+| 8.8 | `ch08/fig-8-8.png` | **Activity > Workflow Runs** filtered on **Request a VM**: four completed runs, `outcome` *Built: vcfguide-web-02 …*, *Built: vcfguide-web-03 …*, *Rejected: Too large for the lab*, *Expired: nobody answered by …* (composite if needed) | — |

@@ -1,0 +1,196 @@
+---
+title: Workflows against vCenter
+description: Recipe 8.1 — work with vCenter through the vSphere plug-in. Run a library workflow, read the vCenter connections from a script, find one VM by name without loading the whole inventory, start a vCenter task, and wait for it with a timeout.
+sidebar:
+  label: 8.1 Workflows against vCenter
+  order: 1
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+Recipe 1.9 registered `vc01.vmw.lab`, and many recipes since then have read VMs from it. This recipe looks at the vSphere plug-in more closely, because every other recipe in the chapter depends on it. You run one of the workflows it ships with, see how its scripting objects map to the vSphere API, find a single VM by name without reading the whole inventory, and start a vCenter task and wait for it to finish.
+
+The task in this recipe is a snapshot of one test VM. It's quick, it's easy to undo, and it shows the pattern used by every vCenter change: call a method that ends in `_Task`, wait for the task, and read its result.
+
+<Recipe type="ready">
+
+- `vc01.vmw.lab` registered in Orchestrator, as in recipe 1.9.
+- A test VM you can snapshot, here `vcfguide-test-01`. Any small powered-on VM with VMware Tools will do.
+- The folder **VCF Orchestrator Guide/Chapter 8** and the action module `com.vcfguide.chapter8`.
+- The API Explorer from recipe 4.2.
+
+</Recipe>
+
+<Recipe type="how">
+
+**Run a library workflow**
+
+1. Go to **Library** > **Workflows** and search for `snapshot`. The vSphere plug-in's snapshot workflows are in the folder **Library** > **vCenter** > **Virtual Machine management** > **Snapshot**.
+2. Open **Create a snapshot** and click **Run**. Pick `vcfguide-test-01` in the VM picker, which browses the live inventory of `vc01.vmw.lab`. Enter the name `before-ch8`, leave memory and quiesce off, and click **Run**.
+3. In the vSphere Client, open the VM's **Monitor** > **Tasks**. A *Create virtual machine snapshot* task appears, started by the account that Orchestrator uses for `vc01` (recipe 1.9).
+
+<Figure n="8.1" caption="The vSphere plug-in's snapshot workflows in the library."
+  capture="<b>Library > Workflows</b>, tree open at <b>Library > vCenter > Virtual Machine management > Snapshot</b>, the snapshot workflows listed; <b>Create a snapshot</b> run form open beside it with <code>vcfguide-test-01</code> picked and name <code>before-ch8</code>." />
+
+<Verify>On 9.1.1, record the folder path of the snapshot workflows, the exact names of <b>Create a snapshot</b> and the other workflows in the folder, and the labels of its inputs. In 8.x the library folders were <b>Library</b> > <b>vCenter</b> > <b>Virtual Machine management</b> > <b>Snapshot</b>.</Verify>
+
+**List the vCenter connections from a script**
+
+4. In the API Explorer, search for `VcPlugin`. It's the plug-in's entry point. `allSdkConnections` returns one `VC:SdkConnection` for each registered vCenter, and the `getAll…` methods return every object of one type across all of them.
+5. Create the action `describeVcenters` in `com.vcfguide.chapter8`, with no inputs and the return type `Array/string`:
+
+```javascript title="com.vcfguide.chapter8/describeVcenters"
+var lines = [];
+var connections = VcPlugin.allSdkConnections;
+for (var i = 0; i < connections.length; i++) {
+    var sdk = connections[i];
+    var about = sdk.about;
+    var line = sdk.name + ": " + about.fullName + " (API " + about.apiVersion + ")";
+    lines.push(line);
+    System.log(line);
+}
+if (lines.length === 0) {
+    System.warn("No vCenter is registered with the vSphere plug-in");
+}
+return lines;
+```
+
+6. Run it. The log has one line for `vc01.vmw.lab`, with its version and build.
+
+<Figure n="8.2" caption="Reading the vCenter connections from a script."
+  capture="Run of action <code>describeVcenters</code>, <b>Logs</b> tab: one line <code>vc01.vmw.lab: VMware vCenter Server 9.x … (API 9.x)</code>; result array with the same line." />
+
+<Verify>Confirm in the API Explorer on 9.1.1 that <code>VcPlugin.allSdkConnections</code> exists, that <code>VC:SdkConnection</code> has <code>name</code> and <code>about</code>, and that <code>about</code> has <code>fullName</code> and <code>apiVersion</code>. Paste the real log line into step 6.</Verify>
+
+**Find one VM by name**
+
+7. Chapter 3's `findVmsByName` reads every VM and tests each name. That's fine in a lab, and slow with thousands of VMs. When you know the exact name, let the plug-in filter for you. Create the action `findVmByName` in `com.vcfguide.chapter8`, with the input `vmName` (`string`) and the return type `VC:VirtualMachine`:
+
+```javascript title="com.vcfguide.chapter8/findVmByName"
+if (!vmName) {
+    throw "findVmByName: vmName is empty";
+}
+if (vmName.indexOf("'") >= 0) {
+    throw "findVmByName: names with an apostrophe aren't supported: " + vmName;
+}
+
+// The plug-in filters by name before it builds the VM objects.
+var query = "xpath:name='" + vmName + "'";
+var vms = VcPlugin.getAllVirtualMachines(null, query);
+
+if (!vms || vms.length === 0) {
+    throw "No VM called " + vmName + " in any registered vCenter";
+}
+if (vms.length > 1) {
+    var where = [];
+    for (var i = 0; i < vms.length; i++) {
+        where.push(vms[i].sdkConnection.name);
+    }
+    throw vms.length + " VMs are called " + vmName + ", in " + where.join(", ");
+}
+System.log("Found " + vmName + " in " + vms[0].sdkConnection.name + " (" + vms[0].id + ")");
+return vms[0];
+```
+
+8. Run it with `vcfguide-test-01`, then with a name that doesn't exist. The first run returns the VM. The second fails with *No VM called …*.
+
+<Verify>On 9.1.1, confirm that <code>getAllVirtualMachines(null, "xpath:name='…'")</code> returns only the matching VM, that each VM has <code>sdkConnection</code> and <code>id</code>, and what <code>id</code> looks like (for example <code>vm-1234</code>). Compare the run time with <code>findVmsByName</code> on the lab inventory.</Verify>
+
+**Start a task and wait for it**
+
+9. Create the action `waitForTask` in `com.vcfguide.chapter8`, with the inputs `task` (`VC:Task`) and `timeoutSeconds` (`number`), and the return type `Any`. It returns the task's result, or throws if the task fails or takes too long:
+
+```javascript title="com.vcfguide.chapter8/waitForTask"
+var deadline = new Date().getTime() + timeoutSeconds * 1000;
+var state = task.info.state.value;
+
+while (state === "queued" || state === "running") {
+    if (new Date().getTime() > deadline) {
+        throw "Task " + task.info.descriptionId + " still " + state +
+              " after " + timeoutSeconds + " seconds";
+    }
+    System.sleep(2000);
+    state = task.info.state.value;
+}
+
+if (state === "error") {
+    throw "Task " + task.info.descriptionId + " failed: " +
+          task.info.error.localizedMessage;
+}
+System.log("Task " + task.info.descriptionId + " finished");
+return task.info.result;
+```
+
+10. Create the action `snapshotVm` in `com.vcfguide.chapter8`, with the inputs `vm` (`VC:VirtualMachine`) and `snapshotName` (`string`), and the return type `VC:VirtualMachineSnapshot`:
+
+```javascript title="com.vcfguide.chapter8/snapshotVm"
+var description = "Taken by Snapshot a VM on " + new Date().toString();
+// name, description, include memory, quiesce the guest file system
+var task = vm.createSnapshot_Task(snapshotName, description, false, false);
+System.log("Started snapshot " + snapshotName + " of " + vm.name);
+
+var snapshot = System.getModule("com.vcfguide.chapter8").waitForTask(task, 300);
+System.log("Snapshot " + snapshotName + " of " + vm.name + " is ready");
+return snapshot;
+```
+
+11. Create the workflow **Snapshot a VM** in **VCF Orchestrator Guide/Chapter 8**. Drag **snapshotVm** onto its schema and click **Promote**: make `vm` and `snapshotName` inputs and the result an output called `snapshot`.
+12. Run it on `vcfguide-test-01` with the name `ch8-script`. When the run completes, the VM's snapshot manager in the vSphere Client shows `before-ch8` and `ch8-script`.
+13. Remove both: run the library workflow **Remove all snapshots** on `vcfguide-test-01`, or delete them in the vSphere Client.
+
+<Figure n="8.3" caption="A workflow that starts a vCenter task and waits for it."
+  capture="Completed run of <b>Snapshot a VM</b>: <b>Variables</b> tab with input <code>vm</code> = <code>vcfguide-test-01</code> and output <code>snapshot</code> (a <code>VC:VirtualMachineSnapshot</code>); <b>Logs</b> tab with <i>Started snapshot ch8-script …</i>, <i>Task … finished</i>, <i>Snapshot ch8-script of vcfguide-test-01 is ready</i>." />
+
+<Verify>On 9.1.1, confirm that <code>task.info.state.value</code> returns <code>queued</code>, <code>running</code>, <code>success</code> or <code>error</code>, that <code>task.info</code> is read again from vCenter on each access rather than cached, that <code>task.info.result</code> for <code>createSnapshot_Task</code> is a <code>VC:VirtualMachineSnapshot</code>, and the exact name of the library workflow <b>Remove all snapshots</b>.</Verify>
+
+</Recipe>
+
+<Recipe type="works">
+
+**The plug-in is the vSphere API.** The vSphere plug-in doesn't invent its own model of vCenter. It wraps the vSphere Web Services API, the same API that PowerCLI and the vSphere SDKs use, and gives each managed object and data object a scripting type with a `VC:` or `Vc` prefix. A `VirtualMachine` in the API is a `VC:VirtualMachine` in Orchestrator, a `VirtualMachineCloneSpec` is a `VcVirtualMachineCloneSpec`, and the method `CreateSnapshot_Task` is `createSnapshot_Task` on the VM object. When you need something the library workflows don't do, look it up in the vSphere API reference, then find the same name in the API Explorer.
+
+**`_Task` methods return at once.** A method whose name ends in `_Task` asks vCenter to start the work and returns a `VC:Task` straight away, usually before anything has changed. The work is done when the task's `info.state` is `success`, and the new object, if there is one, is in `info.result`. That's why every change in this chapter is followed by a wait. Skip the wait and the next step works on a VM that isn't there yet.
+
+**Three ways to wait.** `waitForTask` polls every two seconds, as the library action `vim3WaitTaskEnd` in `com.vmware.library.vc.basic` does. Unlike that action, it has a deadline, so a stuck task can't hold a run for ever. A polling loop keeps the run's thread busy, which is fine for tasks of a few minutes. For tasks that can take an hour, use the **Waiting event** element with `task.createEndOfTaskTrigger(timeoutSeconds)`, as in recipe 3.7, and the run sleeps in the database instead.
+
+**Finding objects.** `VcPlugin.getAllVirtualMachines()` without arguments builds an object for every VM in every vCenter. The second argument is a query, and with `xpath:` the plug-in filters on its side before it builds the objects. Broadcom's 8.x documentation recommends always passing a query to the `getAll…` and `findAll…` finders for this reason. `Server.findAllForType("VC:VirtualMachine", query)` asks the same plug-in, so it behaves the same way.
+
+**One shared account, or the person who ran it.** The task in step 3 was started by the account in the vCenter connection, unless you chose a session per user in recipe 1.9. That decides what vCenter's task list and events show, and whose permissions apply.
+
+<ThenNow
+  then="Script against the vCenter plug-in with <code>VcPlugin</code> and <code>VC:</code> types, and wait for tasks with <code>vim3WaitTaskEnd</code>."
+  now="The same objects and methods, in a browser editor with the API Explorer beside it. Code from vRO 7 for VM operations usually runs unchanged; check deprecated vSphere API methods against the vSphere 9 API reference." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**When the vCenter connection breaks.** Broadcom has three 9.x knowledge base articles on the vSphere plug-in losing its session with vCenter, usually after vCenter restarts or closes old sessions. The vCenter shows as *unusable* in the inventory, and `vco-app.log` has *SDK in bad health*. KB 452127 covers 9.1.0 and says the fix is targeted for 9.1.1. KB 435506 offers a patched plug-in for 9.0.x. The workaround in each is the library workflow **Update a vCenter Server instance**, which re-authenticates the connection.
+
+<Verify>After upgrading the lab to 9.1.1, restart <code>vc01.vmw.lab</code> and check whether the vCenter connection in Orchestrator recovers by itself (the KB 452127 fix), or still needs <b>Update a vCenter Server instance</b>.</Verify>
+
+**Never pass on an empty result.** KB 432269 describes a provisioning workflow that searched the whole inventory for a VM while one vCenter was unusable. The search returned nothing, the next step got `undefined`, and it failed with a confusing error far from the cause. `findVmByName` throws when it finds nothing, so the error says what went wrong. Do the same in every action that looks something up.
+
+**If a search misses VMs that exist.** KB 438935 describes `Server.findAllForType("VC:VirtualMachine", "xpath:name='…'")` sometimes returning nothing for a VM that's in vCenter, after changes to the plug-in's caching in the 8.18 timeframe. Its advice is to use the vSphere **PropertyCollector**, as the library workflow **Get virtual machines by name** in **Library** > **vCenter** > **Virtual Machine management** > **Basic** does. If `findVmByName` misses VMs in your environment, call that workflow or copy its approach.
+
+<Verify>Open <b>Get virtual machines by name</b> on 9.1.1 and record how it calls the PropertyCollector, so that a version of <code>findVmByName</code> built on it can be added here.</Verify>
+
+**Read properties once.** Each property you read on a vCenter object can mean a call to vCenter. In a loop over many VMs, read what you need into local variables once, as `waitForTask` does with `state`, and don't read `vm.config` or `vm.summary` again and again. Broadcom's 8.x documentation adds that each reference to a vCenter object held in a workflow attribute or parameter sends a query to vCenter, and suggests keeping such objects in a configuration or resource element when a workflow refers to them often.
+
+**Clean up after yourself.** A snapshot taken by automation and forgotten slows the VM and fills the datastore. A workflow that takes a snapshot before a change should remove it when the change succeeds, with `snapshot.removeSnapshot_Task(false, true)` and a wait, and leave it, with a log line saying so, when the change fails.
+
+</Recipe>
+
+<Recipe type="see">
+
+- [1.9 Registering your first vCenter](../../../chapter-1/recipes/09-register-vcenter/), for the connection and the session-per-user choice.
+- [3.7 Waiting and custom events](../../../chapter-3/recipes/07-waiting-and-events/), for waiting on a vCenter task with a trigger.
+- [5.1 How plug-ins work](../../../chapter-5/recipes/01-how-plug-ins-work/), for the inventory and `Server.findAllForType`.
+- [8.2 Provisioning a VM from a template](../02-vm-from-template/), which uses `findVmByName` and `waitForTask`.
+- Broadcom TechDocs (VCF 9.0): [Configuring the vCenter Server plug-in](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/vcf-ochestrator-plugins-overview/using-the-vcenter-server-plug-in/configuring-vcenter-server.html) and [Plug-ins installed with the VCF Operations orchestrator server](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/vcf-ochestrator-plugins-overview/manage-the-orchestrator-plug-ins/default-orchestrator-plug-ins-new.html).
+- VMware documentation (Aria Automation 8.12): [vCenter plug-in workflow library](https://docs.vmware.com/en/VMware-Aria-Automation/8.12/Using-Automation-Orchestrator-Plugins/GUID-A080AF4D-95D2-4316-8840-9B199BF26BBC.html) and [Using XPath expressions with the vCenter plug-in](https://docs.vmware.com/en/VMware-Aria-Automation/8.12/Using-Automation-Orchestrator-Plugins/GUID-E0088302-B336-42F5-BE64-B573548EC8BC.html).
+- Broadcom KB [452127](https://knowledge.broadcom.com/external/article/452127/vcenter-plugin-connection-becomes-unusab.html), [435506](https://knowledge.broadcom.com/external/article/435506), [432269](https://knowledge.broadcom.com/external/article/432269) and [438935](https://knowledge.broadcom.com/external/article/438935/serverfindallfortype-function-in-aria-or.html).
+
+</Recipe>
