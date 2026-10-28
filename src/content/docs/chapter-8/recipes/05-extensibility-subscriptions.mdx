@@ -1,0 +1,216 @@
+---
+title: Extensibility subscriptions in VCF Automation
+description: Recipe 8.5 — run Orchestrator workflows at fixed points in a VCF Automation deployment. Connect Orchestrator to a VM Apps organization, name VMs with a blocking subscription that changes the request, tag them in NSX after they're built with a non-blocking one, and follow both in the event log.
+sidebar:
+  label: 8.5 Extensibility subscriptions
+  order: 5
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+When users deploy VMs from VCF Automation, VCF Automation does the building. Orchestrator's job changes: it fills the gaps around the build. Naming rules, IP addresses from an IPAM tool, a record in the CMDB, a tag in NSX, a mail to the owner. **Extensibility subscriptions** are how VCF Automation hands those steps to Orchestrator. A subscription says: when this event happens, in these projects, if this condition is true, run this workflow.
+
+This recipe connects `vco01.vmw.lab` to a VM Apps organization in VCF Automation and adds two subscriptions to it. The first is **blocking**: it runs while a deployment is being allocated, picks the VM's name from a counter, and hands it back so that VCF Automation builds the VM with that name. The second is **non-blocking**: it runs after the VM exists and tags it in NSX with the actions from recipe 8.4, so it joins the right security group without anybody touching NSX.
+
+<Recipe type="ready">
+
+- A VM Apps organization in VCF Automation at `auto.vmw.lab`, an organization administrator account in it, and a project `vcfguide` that can deploy a vSphere VM to `vc01.vmw.lab`.
+- A cloud template in that project that deploys one VM, here `vcfguide-small-vm` (step 9 shows it).
+- The actions `findVmByName` (recipe 8.1), `nsxTagVm` (recipe 8.4), and the REST host `nsx01-rest` (recipe 8.4).
+- Locks from recipe 7.5, and the action `com.vcfguide.chapter4/getConfigElement` from recipe 4.7.
+
+</Recipe>
+
+<Recipe type="how">
+
+**Connect Orchestrator to the organization**
+
+1. Log in to the VM Apps organization as an organization administrator, go to **Infrastructure** > **Integrations**, click **Add Integration**, and select **Orchestration**.
+2. Enter the **Name** `vco01`, choose the external Orchestrator type, and enter the URL `https://vco01.vmw.lab` with an account that can run the chapter's workflows. Accept the certificate, click **Validate**, then **Add**.
+3. Open the integration and click **Start Data Collection**, so VCF Automation reads the workflows on `vco01`. Recipe 1.1 did the same for the embedded Orchestrator.
+
+<Figure n="8.12" caption="The standalone Orchestrator added to a VM Apps organization."
+  capture="VM Apps organization, <b>Infrastructure > Integrations</b>, integration <code>vco01</code> open: type external VCF Operations Orchestrator, URL <code>https://vco01.vmw.lab</code>, validated, data collection status with the last collection time." />
+
+<Verify>On VCF Automation 9.1, record the exact name of the external Orchestrator integration type, what it asks for (URL, credentials, certificate, a cloud proxy), and whether <code>vco01</code> needs a particular authentication provider (recipes 1.3 to 1.6) for the integration to work. If an external instance with vSphere authentication can't be added, note it and run this recipe's workflows on the embedded Orchestrator, after importing the chapter 8 package there (recipe 6.2).</Verify>
+
+**A blocking subscription that names the VM**
+
+4. In Orchestrator, create the configuration element `vcfguide-ch8-naming` in **VCF Orchestrator Guide/Chapter 8**, with two variables: `prefix` (`string`, `vcfguide-cat-`) and `nextNumber` (`number`, `1`).
+5. Create the workflow **Name a catalog VM** in **VCF Orchestrator Guide/Chapter 8**. Give it one input, `inputProperties`, of type `Properties`, and one output, `resourceNames`, of type `Array/string`. The names matter: VCF Automation passes the event to the input called `inputProperties` and reads back any output whose name matches a field of the event.
+6. Add one scriptable task, with `inputProperties` in and `resourceNames` out:
+
+```javascript title="Name a catalog VM — Pick the names"
+var requested = inputProperties.get("resourceNames") || [];
+System.log("VCF Automation proposed: " + requested.join(", ") +
+           " for project " + inputProperties.get("projectName"));
+
+var settings = System.getModule("com.vcfguide.chapter4").getConfigElement(
+    "VCF Orchestrator Guide/Chapter 8", "vcfguide-ch8-naming");
+
+function pad(n) {
+    var s = "" + n;
+    while (s.length < 3) { s = "0" + s; }
+    return s;
+}
+
+// One counter, many runs: take the lock before reading it
+var lockId = "vcfguide-ch8-naming";
+var owner = workflow.id;
+LockingSystem.lockAndWait(lockId, owner);
+try {
+    var prefix = settings.getAttributeWithKey("prefix").value;
+    var next = settings.getAttributeWithKey("nextNumber").value;
+    resourceNames = [];
+    for (var j = 0; j < requested.length; j++) {
+        resourceNames.push(prefix + pad(next));
+        next++;
+    }
+    settings.setAttributeWithKey("nextNumber", next);
+} finally {
+    LockingSystem.unlock(lockId, owner);
+}
+System.log("Names given: " + resourceNames.join(", "));
+```
+
+7. In VCF Automation, go to **Extensibility** > **Subscriptions** and click **New Subscription**. Enter:
+
+| Field | Value |
+|---|---|
+| **Name** | `vcfguide name VMs` |
+| **Event topic** | **Compute allocation** |
+| **Condition** | on, `event.data.customProperties['vcfguideRole'] != null` |
+| **Action/workflow** | **Name a catalog VM**, from the integration `vco01` |
+| **Blocking** | on, **Priority** `10`, **Timeout** `5` minutes |
+| **Project** | **Any Project** off, `vcfguide` added |
+
+8. Click **Save**. The condition limits the subscription to deployments from templates that set the custom property `vcfguideRole`, so other templates in the project keep VCF Automation's own names.
+
+<Figure n="8.13" caption="A blocking subscription on the compute allocation event."
+  capture="VM Apps organization, <b>Extensibility > Subscriptions</b>, <code>vcfguide name VMs</code> open: event topic <b>Compute allocation</b>, condition <code>event.data.customProperties['vcfguideRole'] != null</code>, workflow <b>Name a catalog VM</b> on <code>vco01</code>, <b>Blocking</b> on with priority 10 and timeout, project <code>vcfguide</code>." />
+
+<Verify>On VCF Automation 9.1 (VM Apps organization), record the exact menu path to subscriptions, the event topic's display name and ID (8.x: <b>Compute allocation</b>, <code>compute.allocation.pre</code>), the labels for blocking, priority, timeout and recovery workflow, and the default timeout. Confirm that <code>resourceNames</code> is writable on that topic and that the payload has <code>projectName</code> and <code>customProperties</code>.</Verify>
+
+**A template to try it with**
+
+9. In the project `vcfguide`, create the cloud template `vcfguide-small-vm`, or add the `vcfguideRole` input and property to one you have. Use your own image and flavor mapping names:
+
+```yaml title="Cloud template vcfguide-small-vm"
+formatVersion: 1
+inputs:
+  role:
+    type: string
+    title: Role
+    enum:
+      - web
+      - app
+    default: web
+resources:
+  vm:
+    type: Cloud.vSphere.Machine
+    properties:
+      image: vcfguide-linux
+      flavor: small
+      vcfguideRole: ${input.role}
+      networks:
+        - network: ${resource.net.id}
+  net:
+    type: Cloud.vSphere.Network
+    properties:
+      networkType: existing
+```
+
+`vcfguideRole` isn't a property VCF Automation knows, so it becomes a **custom property** of the machine. That's how a template passes its own data to subscriptions.
+
+10. Deploy the template with the role `web`. In **Extensibility** > **Activity** > **Workflow Runs**, a run of **Name a catalog VM** appears while the deployment is still allocating. The VM is built as `vcfguide-cat-001`. Deploy again, and the next one is `vcfguide-cat-002`.
+
+**A non-blocking subscription that tags the VM**
+
+11. Create the workflow **Tag a new VM in NSX** in **VCF Orchestrator Guide/Chapter 8**, with the input `inputProperties` (`Properties`) and no outputs. Add a variable `nsx` (`REST:RESTHost`) set to `nsx01-rest`, and one scriptable task with `inputProperties` and `nsx` in:
+
+```javascript title="Tag a new VM in NSX — Tag the VMs"
+var chapter8 = System.getModule("com.vcfguide.chapter8");
+var names = inputProperties.get("resourceNames") || [];
+var custom = inputProperties.get("customProperties");
+var role = (custom && custom.get("vcfguideRole")) ? custom.get("vcfguideRole") : "web";
+
+for (var i = 0; i < names.length; i++) {
+    var vm = chapter8.findVmByName(names[i]);
+    // A new VM can take a minute to appear in NSX's inventory
+    var tries = 0;
+    while (true) {
+        try {
+            chapter8.nsxTagVm(nsx, vm, "vcfguide-role", role);
+            break;
+        } catch (e) {
+            tries++;
+            if (tries >= 10) {
+                throw e;
+            }
+            System.log("Not tagged yet (" + e + "), retrying in 30 seconds");
+            System.sleep(30000);
+        }
+    }
+}
+```
+
+12. In VCF Automation, create a second subscription: **Name** `vcfguide tag VMs in NSX`, **Event topic** **Compute post provision**, the same condition and project as in step 7, the workflow **Tag a new VM in NSX**, and **Blocking** off.
+13. Deploy the template once more with the role `app`. The deployment finishes without waiting for the tag. A minute or two later, the run of **Tag a new VM in NSX** completes, and in NSX Manager, **Inventory** > **Virtual Machines** shows the new VM with the tag `vcfguide-role|app`. Deploy with `web`, and the VM joins the group `vcfguide-web` from recipe 8.4 by itself.
+
+**Follow an event**
+
+14. Open **Extensibility** > **Activity** > **Event Log**, find the event for your last deployment, and open it. The page shows the topic, the payload VCF Automation sent, and, for the blocking subscription, the values that came back.
+15. In the Orchestrator Client on `vco01`, open the run of **Name a catalog VM** and look at the **Variables** tab. `inputProperties` holds the same payload. Use this whenever you need to know which fields an event carries.
+
+<Figure n="8.14" caption="One deployment, seen from VCF Automation and from Orchestrator."
+  capture="VCF Automation <b>Extensibility > Activity > Event Log</b>, event for the deployment, topic <b>Compute allocation</b>, payload with <code>resourceNames</code> and <code>customProperties.vcfguideRole</code>; beside it, Orchestrator run of <b>Name a catalog VM</b>, <b>Variables</b> tab with <code>inputProperties</code> expanded and the output <code>resourceNames</code> = <code>vcfguide-cat-001</code>." />
+
+<Verify>Walk steps 9 to 15 on VCF Automation 9.1 and Orchestrator 9.1.1: the display name and ID of the post-provision topic (8.x: <b>Compute post provision</b>, <code>compute.provision.post</code>), the menu paths for workflow runs and the event log, whether <code>customProperties</code> arrives as <code>Properties</code> so <code>custom.get()</code> works, and how long a new VM takes to appear in NSX. Record a real payload in the book.</Verify>
+
+</Recipe>
+
+<Recipe type="works">
+
+**Topics, events, subscriptions.** VCF Automation publishes an **event** at each step of a deployment's life: requested, allocated, provisioned, removed, and many more. Events are grouped into **topics**, and each topic has a fixed payload. A subscription ties a topic to a workflow, with a scope (projects) and a filter (the condition). The condition is a JavaScript expression that VCF Automation evaluates before it starts anything, so a subscription that doesn't match costs no Orchestrator run.
+
+**Blocking: the deployment waits.** A blocking subscription pauses the deployment until the workflow ends. Outputs of the workflow whose names match fields in the payload are written back into the deployment, which is how `resourceNames` changes the VM's name. Only some fields are writable, and only on some topics: names and placement on allocation, custom properties on most. If the workflow fails or runs past the timeout, the deployment fails, unless a **recovery** workflow handles it. Several blocking subscriptions on one topic run one after another, lowest priority number first, and those with the same priority in reverse alphabetical order by name.
+
+**Non-blocking: the deployment carries on.** A non-blocking subscription is a notification. VCF Automation starts the workflow and doesn't wait or read its outputs, so it can't change the deployment, and its failure doesn't fail the deployment. That's right for tagging, CMDB updates, and mails: work that shouldn't stop a user getting their VM because another system is slow. It's also why the tagging workflow retries by itself, since nobody else will.
+
+**The counter and the lock.** Two deployments can allocate at the same moment. Without the lock from recipe 7.5, both runs could read `nextNumber` = `5` and give out the same name. The configuration element keeps the counter on `vco01`, where version history (recipe 6.1) shows every change.
+
+<ThenNow
+  then="vRealize Automation 7's Event Broker called workflows at machine lifecycle states such as <code>VMPSMasterWorkflow32.BuildingMachine</code>, with a <code>payload</code> input, and workflows changed the machine through the vRA plug-in."
+  now="VCF Automation event topics such as compute allocation and compute post provision, a <code>Properties</code> input named <code>inputProperties</code>, and outputs named after the payload fields they change." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**Priority 0 and guest operations on 9.1.0.** Broadcom KB 445188 describes post-provisioning workflows on VCF Automation 9.1.0 that fail now and then with `PolyglotRunnerException`, mostly in subscriptions with priority `0` or `1`, when they run scripts in the guest while cloud-init or Cloudbase-init is still busy. The KB's advice: retry guest calls a few times with a pause, start the chain with a workflow that waits for guest initialization to finish, and trim the template's first-boot work. Giving such subscriptions a lower priority (a higher number) also made the failures go away in the KB's tests.
+
+**Subscriptions after an upgrade to 9.1.0.** Broadcom KB 441703 describes deployments that hang in allocation after an upgrade from 9.0 to 9.1.0, with *No reply from blocking subscription*. The subscriptions still belonged to an old service account. The first workaround in the KB is to disable each Orchestrator subscription under **Extensibility** > **Subscriptions** and enable it again.
+
+**The deployment's ID and user.** Besides `inputProperties`, a workflow started by a subscription can read context parameters with `System.getContext().getParameter()`, such as `__metadata_deploymentId`, `__metadata_projectId`, and `__metadata_userName`. Broadcom KB 383399 lists them. Log `__metadata_userName` in post-provisioning workflows, so you know who asked for the VM.
+
+**Check the name is free.** The counter gives unique names on its own, until someone builds a VM by hand with the same name. Before handing a name back, call `findVmByName` and skip the number if a VM already has it.
+
+**Subscriptions in All Apps organizations.** All Apps organizations in VCF Automation 9 have event subscriptions too, under **Build & Deploy** > **Subscriptions**, with their own list of topics. The idea is the same: a topic, a condition in JavaScript over `event.data`, a workflow from the organization's Orchestrator integration, blocking or not, and a project scope.
+
+**Export the subscriptions with the workflows.** A subscription refers to a workflow by ID. When you promote the workflows from development to production with a package (recipe 6.4), the IDs stay the same, so recreating the subscriptions in production is all that's left. The VCF Automation API can do that from a pipeline.
+
+</Recipe>
+
+<Recipe type="see">
+
+- [1.1 The embedded Orchestrator](../../../chapter-1/recipes/01-embedded-orchestrator/), for Orchestrator integrations in a VM Apps organization.
+- [7.5 Locks](../../../chapter-7/recipes/05-locks/), for the counter's lock.
+- [8.4 NSX automation](../04-nsx-automation/), for `nsxTagVm`.
+- [8.6 Workflows as catalog items](../06-workflows-as-catalog-items/), the other way VCF Automation calls Orchestrator.
+- Broadcom TechDocs (VCF 9.0): [Event subscriptions in VCF Automation](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/organization-management/event-subcriptions-in-vcf-automation-for-all-apps.html), [Create an event subscription in VCF Automation](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/organization-management/event-subcriptions-in-vcf-automation-for-all-apps/create-an-event-subscription-in-vcf-automation-for-all-apps.html), and [Event topics provided with VCF Automation](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/organization-management/event-subcriptions-in-vcf-automation-for-all-apps/vcfa-all-apps-event-topics.html).
+- VMware docs (Aria Automation 8.13), the model VM Apps organizations follow: [Create an extensibility subscription](https://docs.vmware.com/en/VMware-Aria-Automation/8.13/Using-Automation-Assembler/GUID-CA30B6E8-0DFD-4679-84B2-06B4D3A1CBEF.html), and (8.18) [Event topics provided with Automation Assembler](https://docs.vmware.com/en/VMware-Aria-Automation/8.18/Using-Automation-Assembler/GUID-B1561CF6-30EC-4D7D-B214-6AC8190289C5.html).
+- Broadcom KB [445188](https://knowledge.broadcom.com/external/article/445188/intermittent-extensibility-workflow-fail.html) (intermittent post-provisioning workflow failures, 9.1.0), [441703](https://knowledge.broadcom.com/external/article/441703/deployments-fail-due-to-timeout-in-vcf-a.html) (no reply from blocking subscriptions after upgrade to 9.1.0), and [383399](https://knowledge.broadcom.com/external/article/383399) (reading deployment data in a workflow).
+
+</Recipe>

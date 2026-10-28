@@ -1,0 +1,169 @@
+---
+title: Workflows as catalog items
+description: Recipe 8.6 — publish an Orchestrator workflow in the VCF Automation catalog. Build a catalog-friendly wrapper with plain inputs, import it with a content source, share it with a project, give it a custom form with a drop-down and an external validation, and order it as a user.
+sidebar:
+  label: 8.6 Workflows as catalog items
+  order: 6
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+Recipe 8.5 had VCF Automation call Orchestrator in the middle of its own work. The other way round is just as useful: put an Orchestrator workflow straight into the VCF Automation catalog, next to the cloud templates, so users order it the same way they order anything else. Anything a workflow can do becomes a self-service item with VCF Automation's projects, sharing, approvals, and history around it: a VM built your way, a DNS record, a firewall request, a password reset.
+
+The workflow from recipe 8.2 isn't ready for that as it is. Its inputs are vCenter objects, and a user ordering a VM shouldn't have to pick a cluster and a datastore. So you first build **Order a VM**, a thin wrapper with three plain inputs that fills in the rest from a configuration element. Then you import it into a VM Apps organization, share it with the `vcfguide` project, give it a proper form, and order it.
+
+<Recipe type="ready">
+
+- The VM Apps organization, the project `vcfguide`, and the Orchestrator integration `vco01` from recipe 8.5.
+- The workflow **Provision a VM from a template** and the objects it uses (template, folder, cluster, datastore, customization specification) from recipe 8.2, and the action `findVmByName` from recipe 8.1.
+- A test user who is a member of the project `vcfguide` but not an administrator, to order the item.
+
+</Recipe>
+
+<Recipe type="how">
+
+**Build a catalog-friendly workflow**
+
+1. In Orchestrator, create the configuration element `vcfguide-ch8-catalog` in **VCF Orchestrator Guide/Chapter 8**, with five variables, and pick each value as in recipe 8.2:
+
+| Name | Type | Value |
+|---|---|---|
+| `template` | `VC:VirtualMachine` | `tpl-linux-01` |
+| `folder` | `VC:VmFolder` | `vcfguide` |
+| `cluster` | `VC:ClusterComputeResource` | your lab cluster |
+| `datastore` | `VC:Datastore` | your lab datastore |
+| `specName` | `string` | `vcfguide-linux` |
+
+2. Create the action `checkVmName` in `com.vcfguide.chapter8`, with the input `vmName` (`string`) and the return type `string`. It returns an empty string when the name is fine, and the reason when it isn't:
+
+```javascript title="com.vcfguide.chapter8/checkVmName"
+if (!vmName) {
+    return "";   // the form's required check handles an empty field
+}
+if (!/^vcfguide-[a-z0-9-]{1,20}$/.test(vmName)) {
+    return "Use vcfguide- followed by up to 20 lower-case letters, digits or hyphens.";
+}
+try {
+    System.getModule("com.vcfguide.chapter8").findVmByName(vmName);
+    return "A VM called " + vmName + " already exists.";
+} catch (e) {
+    return "";   // not found, so the name is free
+}
+```
+
+3. Create the workflow **Order a VM** in **VCF Orchestrator Guide/Chapter 8**, with the inputs `vmName`, `size`, and `reason`, all `string`, and the outputs `ipAddress` and `summary`, both `string`.
+4. On **Variables**, add `template`, `folder`, `cluster`, `datastore`, and `specName`, each bound to the variable of the same name in `vcfguide-ch8-catalog`, as in recipe 4.7. Add `cpus` and `memoryMb` (`number`) and `vm` (`VC:VirtualMachine`).
+5. On the schema, add a scriptable task `Check the order`, with `vmName` and `size` in and `cpus` and `memoryMb` out:
+
+```javascript title="Order a VM — Check the order"
+var problem = System.getModule("com.vcfguide.chapter8").checkVmName(vmName);
+if (!vmName || problem) {
+    throw "Can't build " + vmName + ": " + (problem || "no name given");
+}
+var sizes = {
+    small:  { cpus: 1, memoryMb: 2048 },
+    medium: { cpus: 2, memoryMb: 4096 }
+};
+if (!sizes.hasOwnProperty(size)) {
+    throw "Unknown size " + size + ". Use small or medium.";
+}
+cpus = sizes[size].cpus;
+memoryMb = sizes[size].memoryMb;
+var context = System.getContext();
+System.log("Order for " + vmName + " (" + size + ") by " +
+           (context.getParameter("__metadata_userName") || Server.getRunningUser().name));
+```
+
+6. After it, drag the workflow **Provision a VM from a template** onto the schema. Bind `template`, `folder`, `cluster`, `datastore`, `specName`, `cpus`, and `memoryMb` to the variables, `vmName` to the input, and its outputs to `vm` and `ipAddress`.
+7. Add a last scriptable task `Summarize`, with `vm`, `ipAddress`, `size`, and `reason` in and `summary` out:
+
+```javascript title="Order a VM — Summarize"
+summary = vm.name + " is ready at " + ipAddress + " (" + size + "). Reason: " + reason;
+System.log(summary);
+```
+
+8. Run **Order a VM** once from the Orchestrator Client with `vcfguide-cat-web-01`, `small`, and `Catalog test`, to know it works before VCF Automation is involved. Run it again with the same name: it fails in **Check the order** with *A VM called vcfguide-cat-web-01 already exists*. Delete the VM.
+
+**Import it into VCF Automation**
+
+9. In the VM Apps organization, go to **Content & Policies** > **Content Sources** and click **New**. Choose the type **VCF Operations Orchestrator workflows**.
+10. Enter the **Name** `VCF Orchestrator Guide`, select the integration `vco01`, click **Add**, find **Order a VM**, and add it. Click **Create & Import**. The source shows one item imported.
+11. Go to **Content & Policies** > **Policies**, click **New Policy**, and choose **Content Sharing**. Name it `vcfguide catalog`, set its scope to the project `vcfguide`, add the content source `VCF Orchestrator Guide`, and add the users or groups who may order from it. Click **Create**.
+
+<Figure n="8.15" caption="The workflow imported as a content source and shared with a project."
+  capture="VM Apps organization, <b>Content & Policies > Content Sources</b>, source <code>VCF Orchestrator Guide</code> of type <b>VCF Operations Orchestrator workflows</b>, integration <code>vco01</code>, 1 item imported (<b>Order a VM</b>); inset: <b>Policies</b>, content sharing policy <code>vcfguide catalog</code> scoped to project <code>vcfguide</code>." />
+
+<Verify>On VCF Automation 9.1 (VM Apps organization), record the menu names (<b>Content & Policies</b>, <b>Content Sources</b>, <b>Policies</b>), the exact content source type name, the button labels in steps 10 and 11, and whether a content sharing policy can share a whole content source or only items.</Verify>
+
+**Give it a form**
+
+12. Go to **Content & Policies** > **Content**, open the menu next to **Order a VM**, and choose **Customize form**. The designer shows one field for each workflow input, plus the request's own fields, such as the project and the deployment name.
+13. Select `vmName`. On **Appearance**, set the label to `VM name`. On **Values**, set the default to `vcfguide-`. On **Constraints**, make it required and set **Regular expression** to `^vcfguide-[a-z0-9-]{1,20}$`, with the message *Use vcfguide- followed by lower-case letters, digits or hyphens.*
+14. Select `size`, change its display type to **Drop-down**, and on **Values** set **Value options** to a constant list: `small` with the label `Small: 1 vCPU, 2 GB`, and `medium` with the label `Medium: 2 vCPU, 4 GB`. Set the default to `small`.
+15. Select `reason`, change it to a **Text area**, and make it required.
+16. Add an external validation: on the form's **Validation** settings, choose the action `com.vcfguide.chapter8/checkVmName`, bind its input `vmName` to the field `vmName`, and point the message at that field. Now a user who picks a name that's taken is told so before the request is sent.
+17. Turn the form on and click **Save**.
+
+<Figure n="8.16" caption="The custom form for Order a VM."
+  capture="Custom form designer for <b>Order a VM</b>: canvas with <b>VM name</b>, <b>Size</b> drop-down showing both labels, <b>Reason</b> text area; properties pane of <b>VM name</b> on <b>Constraints</b> with the regular expression; external validation set to <code>checkVmName</code>; form enabled." />
+
+<Verify>On VCF Automation 9.1, confirm the custom form designer's tab names (<b>Appearance</b>, <b>Values</b>, <b>Constraints</b>), the drop-down value options, and how external validation is set up: where it lives, that an action returning a non-empty string blocks the request with that message, and how the action's input is bound to a field.</Verify>
+
+**Order it**
+
+18. Log in as the test user, go to **Consume** > **Catalog**, and click **Request** on **Order a VM**. Pick the project `vcfguide`, enter a deployment name such as `web for the demo`, the VM name `vcfguide-cat-web-02`, the size **Medium**, and a reason. Click **Submit**.
+19. Under **Consume** > **Deployments**, the new deployment shows the request **In progress**, then **Successful**. Its history shows the workflow's run.
+20. On `vco01`, **Activity** > **Workflow Runs** shows the run of **Order a VM**, with the nested **Provision a VM from a template**. The log of **Check the order** names the test user who ordered it.
+21. Delete the VM `vcfguide-cat-web-02` in vCenter, then the deployment in VCF Automation.
+
+<Figure n="8.17" caption="Ordering the workflow from the catalog, and the run it starts."
+  capture="As the test user, <b>Consume > Catalog</b> with <b>Order a VM</b> next to cloud templates; request form filled (<b>VM name</b> <code>vcfguide-cat-web-02</code>, <b>Size</b> Medium, reason); beside it the deployment <code>web for the demo</code> <b>Successful</b>, and on <code>vco01</code> the completed run with the log line naming the user." />
+
+<Verify>Walk steps 18 to 21 on VCF Automation 9.1. Record whether a workflow request asks for a deployment name, what the deployment shows (status, history, the workflow's outputs <code>ipAddress</code> and <code>summary</code>), which account the run on <code>vco01</code> is started as, whether <code>__metadata_userName</code> is set for catalog requests, and whether deleting the deployment does anything to the VM.</Verify>
+
+</Recipe>
+
+<Recipe type="works">
+
+**A content source is a pointer.** The content source doesn't copy the workflow. It records the workflow's ID and the integration it lives on, and reads the workflow's inputs to build the item. When the user submits a request, VCF Automation starts the workflow on `vco01` through the integration, passes the form's values as inputs, and follows the run until it ends. A change to the workflow's script is live at once. A change to its inputs needs the content source to import again, so the item's form matches.
+
+**Sharing decides who sees it.** An item exists in the organization once it's imported, but nobody can order it until a content sharing policy puts it in a project's catalog for a set of users. The same item can be shared with several projects, each with its own policy.
+
+**Plain inputs make good items.** The catalog form can show vCenter objects as pickers, but those ask a user to understand your infrastructure and let them choose anything the integration's account can see. A wrapper with plain inputs keeps those decisions in Orchestrator: the configuration element says where VMs go, and the size names hide the numbers. The form decides what the user sees, and the workflow checks it again, because forms can be bypassed through the API.
+
+**One check, used twice.** `checkVmName` runs as the form's external validation, so the user hears about a taken name while filling in the form, and again in **Check the order**, so a request through the API gets the same answer. The action returns a message instead of throwing, which is what form validation needs, and the workflow turns a message into an error.
+
+<ThenNow
+  then="In vRealize Automation 7, publish a workflow as an XaaS blueprint in the design tab, edit its form in the XaaS form designer, and entitle it to a business group in an entitlement."
+  now="In a VM Apps organization, import workflows with a <b>VCF Operations Orchestrator workflows</b> content source, share them with a project by a content sharing policy, and design the request in the custom form designer." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**Approvals for catalog items.** An item like **Order a VM** is where VCF Automation's approval policies belong, as recipe 8.3 explains. A policy can require approval for this item in this project, and the workflow only starts once someone approves. The Orchestrator workflow doesn't need to know.
+
+**Drop-downs from Orchestrator.** Instead of a constant list, a drop-down's values can come from an action, such as `listTemplates` in recipe 8.2 changed to return names. Keep such actions fast and give them defaults for every input they read, because the form calls them while it loads and while the user types. A field bound to another field may be empty when the form opens, so check for `null` and return an empty list rather than failing.
+
+**Read the request in the workflow.** Context parameters such as `__metadata_userName`, `__metadata_projectId`, and `__metadata_deploymentId` tell the workflow who ordered it and where it belongs, as in recipe 8.5. Use them for naming, for tags, or to mail the requester.
+
+**Day 2 actions.** A workflow item creates a deployment, but no resource VCF Automation manages, so the deployment offers no actions on the VM it built. To let users power, resize, or delete what a workflow created, make it a **custom resource** with resource actions, which a later recipe in this chapter covers, or put the VM in a cloud template and use the workflow as a subscription instead.
+
+**Catalog items in All Apps organizations.** All Apps organizations build catalog items from blueprints, and a blueprint can include Orchestrator workflows through the organization's Orchestrator integration. The workflow side is the same: plain inputs, its own checks, and context parameters for the request.
+
+</Recipe>
+
+<Recipe type="see">
+
+- [3.6 Input forms](../../../chapter-3/recipes/06-input-forms/), for Orchestrator's own forms, which the catalog form replaces for catalog users.
+- [4.7 Configuration elements in code](../../../chapter-4/recipes/07-configuration-elements/), for binding variables to a configuration element.
+- [8.2 Provisioning a VM from a template](../02-vm-from-template/), the workflow this one wraps.
+- [8.3 An approval process for provisioning](../03-approval-process/), for approvals in Orchestrator and in VCF Automation.
+- [8.5 Extensibility subscriptions](../05-extensibility-subscriptions/), for the integration `vco01` and context parameters.
+- Pranay Jha, [Publishing catalog items with Automation Service Broker in VCF Automation](https://drpranayjha.com/vcf-automation-service-broker-catalog/) (VCF Automation 9 series, part 14), for content sources and content sharing in a VM Apps organization.
+- VMware blog: [Good practices for developing custom forms with VMware Cloud Foundation Automation](https://blogs.vmware.com/cloud-foundation/2024/10/11/good-practices-for-developing-custom-forms-with-vmware-cloud-foundation-automation/).
+- Broadcom KB [383399](https://knowledge.broadcom.com/external/article/383399): reading deployment data in an Orchestrator workflow.
+
+</Recipe>

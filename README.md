@@ -15,7 +15,7 @@ A free, open cookbook for **VCF Operations Orchestrator 9.x**, written by Mayank
 | 5. Working with plug-ins | Draft, in review |
 | 6. Content lifecycle | Draft, in review |
 | 7. Advanced operations | Draft, in review |
-| 8. Orchestrator in VCF | Draft in progress (8.1–8.3) |
+| 8. Orchestrator in VCF | Draft in progress (8.1–8.6) |
 
 ## Working on the book
 

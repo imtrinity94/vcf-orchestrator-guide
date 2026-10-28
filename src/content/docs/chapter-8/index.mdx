@@ -12,33 +12,41 @@ import ComingSoon from '../../../components/ComingSoon.astro';
   { title: 'Workflows against vCenter', href: 'recipes/01-vcenter-workflows/' },
   { title: 'Provisioning a VM from a template', href: 'recipes/02-vm-from-template/' },
   { title: 'An approval process for provisioning', href: 'recipes/03-approval-process/' },
+  { title: 'NSX automation', href: 'recipes/04-nsx-automation/' },
+  { title: 'Extensibility subscriptions in VCF Automation', href: 'recipes/05-extensibility-subscriptions/' },
+  { title: 'Workflows as catalog items', href: 'recipes/06-workflows-as-catalog-items/' },
 ]} />
 
 The first seven chapters built up the tools: the appliance, the canvas, scripting, plug-ins, packages, the API, and the server-side helpers. This chapter uses them for the job most people bring Orchestrator in for, which is automating the private cloud that VCF gives you.
 
 Recipe 8.1 is the base for the rest. It looks at the vSphere plug-in from the inside: the library workflows it ships with, the scripting objects that mirror the vSphere API, how to find one VM quickly in a large inventory, and how to start a vCenter task and wait for it properly. Recipe 8.2 builds on that to clone a VM from a template with a guest customization specification, first with a library workflow and then with a workflow of your own that you can call from anywhere. Recipe 8.3 wraps that workflow in a request that goes to an approver by email, waits for an answer, and builds the VM only when someone says yes.
 
-The rest of the chapter, still to come, turns to the products around Orchestrator in VCF: NSX, VCF Automation's extensibility subscriptions and catalog, and the Orchestrator plug-in for the vSphere Client.
+Recipe 8.4 turns to NSX. Orchestrator 9.x doesn't install an NSX plug-in, so it uses the NSX Policy API through the HTTP-REST plug-in to create a segment, wait until NSX has built it, tag a VM, and make a group whose members follow the tag. Recipes 8.5 and 8.6 connect Orchestrator to VCF Automation in its two directions. In 8.5, VCF Automation calls Orchestrator in the middle of a deployment, through extensibility subscriptions that name each VM and tag it in NSX. In 8.6, a workflow becomes an item in the VCF Automation catalog, with a custom form, ordered by users like any cloud template.
 
-<ComingSoon topics={["NSX automation","Extensibility subscriptions in VCF Automation","Workflows as catalog items","Custom resources and resource actions","The Orchestrator plug-in for the vSphere Client"]} />
+The rest of the chapter, still to come, covers custom resources with day 2 actions and the Orchestrator plug-in for the vSphere Client.
+
+<ComingSoon topics={["Custom resources and resource actions","The Orchestrator plug-in for the vSphere Client"]} />
 
 ## The examples
 
 | Object | Name |
 |---|---|
 | Workflow folder | **VCF Orchestrator Guide/Chapter 8** |
-| Action module | `com.vcfguide.chapter8`, with `describeVcenters`, `findVmByName`, `waitForTask`, `snapshotVm`, `listTemplates`, `cloneFromTemplate`, `waitForGuestIp` and `isAutoApproved` |
-| Workflows | **Snapshot a VM** (recipe 8.1), **Provision a VM from a template** (recipe 8.2), **Request a VM** (recipe 8.3) |
+| Action module | `com.vcfguide.chapter8`, with `describeVcenters`, `findVmByName`, `waitForTask`, `snapshotVm`, `listTemplates`, `cloneFromTemplate`, `waitForGuestIp`, `isAutoApproved`, `nsxCall`, `nsxWaitForRealization`, `nsxCreateSegment`, `nsxTagVm`, `nsxEnsureTagGroup` and `checkVmName` |
+| Workflows | **Snapshot a VM** (recipe 8.1), **Provision a VM from a template** (recipe 8.2), **Request a VM** (recipe 8.3), **Create an NSX segment** (recipe 8.4), **Name a catalog VM** and **Tag a new VM in NSX** (recipe 8.5), **Order a VM** (recipe 8.6) |
 | vCenter | `vc01.vmw.lab`, registered in recipe 1.9 |
 | Test VM, for snapshots | `vcfguide-test-01` |
-| VMs built in recipes 8.2 and 8.3 | `vcfguide-clone-01`, `vcfguide-web-01` to `vcfguide-web-05` |
+| VMs built in recipes 8.2, 8.3, 8.5 and 8.6 | `vcfguide-clone-01`, `vcfguide-web-01` to `vcfguide-web-05`, `vcfguide-cat-001` and up, `vcfguide-cat-web-01` and `vcfguide-cat-web-02` |
 | Template, in `vc01.vmw.lab` | `tpl-linux-01`, a small Linux VM with VMware Tools, converted to a template |
 | Guest customization specification | `vcfguide-linux`, Linux, DHCP on one NIC |
 | VM folder | `vcfguide` in the lab data center, for every VM the chapter builds |
-| Configuration element, in **VCF Orchestrator Guide/Chapter 8** | `vcfguide-ch8-provisioning`, the approval settings for recipe 8.3 |
+| Configuration elements, in **VCF Orchestrator Guide/Chapter 8** | `vcfguide-ch8-provisioning`, the approval settings for recipe 8.3; `vcfguide-ch8-naming`, the name counter for recipe 8.5; `vcfguide-ch8-catalog`, where catalog VMs go, for recipe 8.6 |
 | Approvers' group | `OrchestratorApprovers` in vSphere SSO |
+| NSX Manager | `nsx01.vmw.lab`, registered as the REST host `nsx01-rest` with the account `svc-vcfguide-nsx@vsphere.local` |
+| NSX objects | Tier-1 gateway `vcfguide-t1`, segment `vcfguide-seg-01`, group `vcfguide-web`, VM tags with the scope `vcfguide-role` |
+| VCF Automation | VM Apps organization at `auto.vmw.lab`, project `vcfguide`, Orchestrator integration `vco01`, cloud template `vcfguide-small-vm`, subscriptions `vcfguide name VMs` and `vcfguide tag VMs in NSX`, content source `VCF Orchestrator Guide`, content sharing policy `vcfguide catalog` |
 
-Recipe 8.1 creates and removes snapshots on one test VM. Recipes 8.2 and 8.3 create new VMs in the `vcfguide` folder. Use a cluster and datastore with room for a few small VMs, and delete the VMs when you're done. JavaScript samples are plain ES5.1.
+Recipe 8.1 creates and removes snapshots on one test VM. Recipes 8.2, 8.3 and 8.6 create new VMs in the `vcfguide` folder, and recipe 8.5 has VCF Automation build them. Recipe 8.4 creates a segment and a group in NSX and tags VMs. Use a cluster and datastore with room for a few small VMs, and delete the VMs when you're done. JavaScript samples are plain ES5.1.
 
 ## What changed since vRO 7
 
