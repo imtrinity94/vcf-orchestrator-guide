@@ -1,0 +1,189 @@
+---
+title: REST hosts and operations
+description: Recipe 5.2 — register a REST API with the HTTP-REST plug-in, define operations with URL templates, run them without code, and call the API from an action with a session token.
+sidebar:
+  label: 5.2 REST hosts and operations
+  order: 2
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+Almost every product you'll automate has a REST API, and the HTTP-REST plug-in is the most used plug-in after vCenter. It gives Orchestrator two objects. A **REST host** is a base URL with everything needed to reach it: timeouts, certificate, authentication, proxy. A **REST operation** is one call on that host, such as `GET /api/vcenter/vm/{vm}`, with placeholders for the parts that change.
+
+The example API in this recipe is vCenter's own REST API on `vc01.vmw.lab`, because every reader has one. You register it as a REST host, add two operations, try one with a built-in workflow, and then write an action that logs in, lists the VMs, and logs out, the pattern most token-based APIs follow.
+
+<Recipe type="ready">
+
+- A login to the Orchestrator Client with administrator rights. The configuration workflows need it.
+- The read-only vCenter account `svc-vcfguide-ro@vsphere.local` from recipe 4.5, and its password.
+- The action module `com.vcfguide.chapter5` from recipe 5.1.
+- `vco01.vmw.lab` able to reach `vc01.vmw.lab` on TCP 443.
+
+</Recipe>
+
+<Recipe type="how">
+
+**Register the REST host**
+
+1. Go to **Library** > **Workflows**, search with the tags `http-rest` and `configuration`, and run **Add a REST host**.
+2. On the **Host Properties** tab, enter:
+
+| Field | Value |
+|---|---|
+| **Name** | `vc01-rest` |
+| **URL** | `https://vc01.vmw.lab` |
+| **Connection timeout** | `30` |
+| **Operation timeout** | `60` |
+
+3. Choose to accept the host's certificate and add it to the trust store. Leave parallel requests off, and **Redirect strategy** at `defaultRedirect`.
+4. On the **Host Authentication** tab, choose **Basic**. On the **User credentials** tab, choose **Shared Session** and enter the user `svc-vcfguide-ro@vsphere.local` and its password.
+5. Leave the **Proxy Settings** tab and the **SSL** tab as they are, and click **Run**.
+6. Go to **Administration** > **Inventory** > **HTTP-REST**. The host `vc01-rest` is listed.
+
+<Figure n="5.4" caption="The Host Properties page of the Add a REST host workflow."
+  capture="Run dialog of <b>Add a REST host</b>, <b>Host Properties</b> tab: <b>Name</b> <code>vc01-rest</code>, <b>URL</b> <code>https://vc01.vmw.lab</code>, timeouts <code>30</code> and <code>60</code>, certificate acceptance set to yes, <b>Redirect strategy</b> <code>defaultRedirect</code>." />
+
+<Verify>On 9.1.1, record the exact labels of the certificate and parallel-request choices on the <b>Host Properties</b> tab, the default timeouts, and the name of the inventory entry for REST hosts (<b>HTTP-REST</b> or <b>REST</b>).</Verify>
+
+**Add two operations**
+
+7. Search with the tags `http-rest` and `configuration` again, and run **Add a REST operation**. Select the host `vc01-rest`, and enter:
+
+| Field | Value |
+|---|---|
+| **Name** | `Create session` |
+| **Template URL** | `/api/session` |
+| **HTTP method** | `POST` |
+| **Content type** | `application/json` |
+
+8. Run **Add a REST operation** once more, for the host `vc01-rest`, with **Name** `Get VM`, **Template URL** `/api/vcenter/vm/{vm}`, and **HTTP method** `GET`.
+9. In the inventory, expand `vc01-rest`. Both operations are under it.
+
+The Template URL holds only the path, after the host's URL. Anything in braces, such as `{vm}`, becomes a parameter you fill in when you call the operation.
+
+**Try an operation without code**
+
+10. Search with the tag `http-rest` and run **Invoke a REST operation**. Select the operation `Create session`, leave the content empty, and click **Run**.
+11. On the run's **Variables** tab, the status code is `201` and the response content is a quoted string of letters and digits. That's a vCenter session token.
+
+<Figure n="5.5" caption="A REST operation run without code, and the session token it returned."
+  capture="Run of <b>Invoke a REST operation</b> for <code>vc01-rest</code> / <code>Create session</code>, <b>Variables</b> tab: <code>statusCode</code> = <code>201</code>, <code>contentAsString</code> with the token (blur most of it)." />
+
+<Verify>On 9.1.1, check the inputs of <b>Invoke a REST operation</b> (operation, parameters, content, and any headers) and the names of its outputs, such as <code>statusCode</code>, <code>contentAsString</code>, and <code>headers</code>.</Verify>
+
+**Call the API from an action**
+
+12. In **Library** > **Actions**, create the action `listVcenterVms` in `com.vcfguide.chapter5`, with one input, `restHost` of type `REST:RESTHost`, and the **Return type** `Array/string`:
+
+```javascript title="com.vcfguide.chapter5/listVcenterVms"
+// Lists the VMs of a vCenter through its REST API.
+// restHost is a REST host for the vCenter with Basic authentication.
+function send(method, path, token) {
+    var request = restHost.createRequest(method, path, null);
+    request.setHeader("Accept", "application/json");
+    if (token) {
+        request.setHeader("vmware-api-session-id", token);
+    }
+    var response = request.execute();
+    System.debug(method + " " + path + " returned " + response.statusCode);
+    return response;
+}
+
+// Log in: Basic authentication on this call only, the token afterwards
+var login = send("POST", "/api/session", null);
+if (login.statusCode !== 201) {
+    throw "listVcenterVms: login to " + restHost.name + " failed with HTTP " + login.statusCode;
+}
+var token = JSON.parse(login.contentAsString);
+
+var lines = [];
+try {
+    var response = send("GET", "/api/vcenter/vm", token);
+    if (response.statusCode !== 200) {
+        throw "listVcenterVms: listing VMs failed with HTTP " + response.statusCode
+            + ": " + response.contentAsString;
+    }
+    var vms = JSON.parse(response.contentAsString);
+    for (var i = 0; i < vms.length; i++) {
+        lines.push(vms[i].name + " (" + vms[i].power_state + ", " + vms[i].vm + ")");
+    }
+    System.log(vms.length + " VMs on " + restHost.name);
+} finally {
+    // Always log out, so failed runs don't leave sessions behind
+    send("DELETE", "/api/session", token);
+}
+return lines;
+```
+
+13. Run the action and pick `vc01-rest` for `restHost`. The result lists every VM with its power state and its ID, such as `vm-1001`.
+14. Run **Invoke a REST operation** again, this time for `Get VM`, with `vm` set to one of those IDs. It fails with an authentication error, `401`, because `Get VM` needs a session token that this workflow doesn't send. The next section explains why, and step 12's action is the answer.
+
+<Figure n="5.6" caption="The action that logs in, lists the VMs, and logs out."
+  capture="Run of action <code>com.vcfguide.chapter5/listVcenterVms</code> with <code>restHost</code> = <code>vc01-rest</code>: result array with VM names, power states and IDs, and the <b>Logs</b> tab with the count line." />
+
+<Verify>Run step 12 on 9.1.1 against vCenter 9.1 and confirm: that <code>createRequest</code> accepts <code>null</code> content for <code>GET</code> and <code>DELETE</code>; that <code>statusCode</code> compares as a number with <code>!==</code>; that the host's Basic header on the <code>GET</code> and <code>DELETE</code> calls doesn't stop vCenter using the session token; and the exact result of step 14 (401 or another code).</Verify>
+
+</Recipe>
+
+<Recipe type="works">
+
+When a workflow or script runs a request, the plug-in builds the full URL from the host's URL and the operation's template, fills in the parameters, adds the host's authentication, and sends it with its own HTTP client. The response comes back as a `RESTResponse`: `statusCode` is the HTTP status, `contentAsString` the body, and `getAllHeaders()` the headers. Nothing in the plug-in fails on a `404` or a `500`. A response is a response, so check `statusCode` yourself, as the action does.
+
+**Hosts and operations live in the inventory.** **Add a REST host** and **Add a REST operation** store their objects in Orchestrator's database. They're **persistent**: they survive restarts, every node in a cluster sees them, and they can go into a package. That's the right home for an API that many workflows use. A script can also make a **transient** host that exists only while it runs (see There's more).
+
+**Operations or `createRequest`?** An operation is useful when people, or generated workflows, call the API without writing code. `Get VM` with its `{vm}` placeholder is exactly that. In a script, `restHost.createRequest(method, path, content)` is often simpler: you can build any path, and you don't need an operation for each call.
+
+**Authentication on the host.** The host's authentication is added to every request it sends. That's fine for APIs that accept Basic authentication on every call. vCenter, like many APIs, accepts it only on the login call and expects a session token on the rest, which is why the plain **Invoke a REST operation** in step 14 fails: it sends Basic authentication and no token. The action handles the token itself, and logs out in a `finally` block, so a failure halfway through doesn't leave a session open on vCenter.
+
+**Shared or per-user session.** With **Shared Session**, every request uses the account you entered, whoever runs the workflow. With **Per User Session**, the plug-in uses the credentials of the Orchestrator user running it, which only works when that user is also known to the API, for example through the same SSO. A workflow started by VCF Automation runs as a service user, not as the person who asked, so per-user hosts often fail there. Shared sessions with a least-privilege account are the safer default.
+
+**Certificates.** Accepting the certificate in step 3 adds it to Orchestrator's trust store, so every later call to that host is checked against it. When the API's certificate is replaced, calls fail with a certificate error until you import the new one with **Import a certificate from URL**, which is in the Configuration plug-in's workflows.
+
+<ThenNow
+  then="Import the REST host's certificate in the Configurator or Control Center, then run <b>Add a REST host</b> in the Java client and pick objects in its inventory tree."
+  now="Accept the certificate in <b>Add a REST host</b> itself, or run <b>Import a certificate from URL</b>, and find the host under <b>Administration</b> > <b>Inventory</b>. A redirect strategy, OAuth 2.0, and Kerberos are options of the workflow." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**A REST call without anything in the inventory.** For a one-off call, a script can make a transient host. It isn't saved, so nothing needs cleaning up:
+
+```javascript title="Transient REST host"
+var template = RESTHostManager.createHost("vcfguide-transient");
+var host = RESTHostManager.createTransientHostFrom(template);
+host.url = "https://vc01.vmw.lab";
+host.authentication = RESTAuthenticationManager.createAuthentication("Basic",
+    ["Shared Session", user, password]);
+var response = host.createRequest("POST", "/api/session", null).execute();
+System.log("Login returned HTTP " + response.statusCode);
+```
+
+Read `user` and `password` from a configuration element (recipe 4.7), never from the script. Transient hosts can't check the host name against the certificate or use a client certificate, and they don't follow redirects for `POST`. Keep them for quick jobs inside one script: passing a transient host from one workflow element to another isn't supported.
+
+<Verify>The transient host calls come from the built-in <b>Invoke a dynamic REST operation</b> workflow's script and Broadcom's 8.18 page on persistent and transient hosts. Confirm on 9.1.1 that this script works, that the certificate of a transient host is checked against the trust store, and what happens if it isn't trusted.</Verify>
+
+**Generate a workflow from an operation.** Run **Generate a new workflow from a REST operation**, pick `Get VM`, give the workflow a name such as **Get a vCenter VM**, and pick the folder **VCF Orchestrator Guide/Chapter 5**. You get a workflow with an input for `vm` and outputs for the status and the content, ready to drop into other workflows.
+
+**Calls without code that change each time.** **Invoke a dynamic REST operation** takes a base URL, a method, and a path and stores nothing. **Invoke a REST host with dynamic params** and **Invoke a REST operation with dynamic params** reuse a stored host or operation and override some of its settings for one run.
+
+**Paging and limits.** vCenter's `GET /api/vcenter/vm` returns at most 4,000 VMs. On a larger vCenter, filter it with query parameters such as `?names=`, `?folders=`, or `?hosts=`. Other APIs page their results. Either way, put the loop in the action, not in the workflow.
+
+**Time-outs.** The **Operation timeout** limits how long one request may take. A slow report endpoint may need more than `60`. Change it with **Update a REST host**, not by recreating the host, so the operations under it stay.
+
+**OAuth 2.0 and API tokens.** For APIs that take a bearer token, choose **OAuth 2.0** as the host's authentication and enter the token, sent in the **Authorization header**. If the token expires, get a new one in the script and set the header yourself, as the action does with vCenter's session ID.
+
+</Recipe>
+
+<Recipe type="see">
+
+- [4.7 Working with configuration elements in code](../../../chapter-4/recipes/07-configuration-elements/), for keeping the password out of scripts.
+- [5.1 How plug-ins work](../01-how-plug-ins-work/), for the inventory and configuration workflows.
+- Broadcom TechDocs (VCF 9.0): [Using the HTTP-REST Plug-In](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/vcf-ochestrator-plugins-overview/using-the-http-rest-plug-in.html), [Add a REST Host](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/vcf-ochestrator-plugins-overview/using-the-http-rest-plug-in/configuring-the-rest-plug-in/add-a-rest-host.html), [Invoking a REST Operation](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/vcf-ochestrator-plugins-overview/using-the-http-rest-plug-in/invoking-a-rest-operation.html), and [Generate a New Workflow from a REST Operation](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/vcf-ochestrator-plugins-overview/using-the-http-rest-plug-in/generate-a-new-workflow-from-a-rest-operation.html).
+- Broadcom TechDocs (Aria Automation 8.18): [Add a REST operation](https://techdocs.broadcom.com/us/en/vmware-cis/aria/aria-automation/8-18/vro-using-plug-ins-8-18/using-the-http-rest-plug-in/configuring-the-rest-plug-in/add-a-rest-operation.html) and [Persistent and transient REST hosts](https://techdocs.broadcom.com/us/en/vmware-cis/aria/aria-automation/8-18/vro-using-plug-ins-8-18/using-the-http-rest-plug-in/transient-vs-persistent-rest-hosts.html).
+- Broadcom KB [326119](https://knowledge.broadcom.com/external/article/326119/per-user-session-host-workflows-do-not-w.html): per-user session hosts and workflows started from VCF Automation. KB [322686](https://knowledge.broadcom.com/external/article/322686/unable-to-update-rest-host-with-custom-p.html): certificate errors from an expired intermediate certificate.
+- Broadcom developer documentation (vSphere Automation API 9.1): [Vcenter VM list](https://developer.broadcom.com/xapis/vsphere-automation-api/9.1/api/vcenter/vm/get/).
+
+</Recipe>

@@ -1,0 +1,140 @@
+---
+title: "Packages: create, export, import"
+description: Recipe 6.2 — bundle a workflow with the action and configuration element it needs, export it with the right options, import it into a second Orchestrator, and update it later.
+sidebar:
+  label: 6.2 Packages
+  order: 2
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+A **package** is Orchestrator's way of moving content. It's a signed file that holds workflows, actions, policies, configuration elements, and resource elements, together with everything they depend on. For most objects you create in the client, a package is the only way to export them and import them somewhere else.
+
+In this recipe you put the workflow from recipe 6.1 into a package, check that its action and configuration element came along, export it, and import it into the Orchestrator embedded in VCF Automation. Then you change the workflow and import it again, to see how Orchestrator decides what to overwrite.
+
+<Recipe type="ready">
+
+- The workflow **Report powered-on VMs**, the action `com.vcfguide.chapter6/countPoweredOnVms`, and the configuration element `vcfguide-ch6-settings` from recipe 6.1, on `vco01.vmw.lab`.
+- A login with administrator rights on `vco01.vmw.lab`, and on the target: the **Orchestrate** tab of the Provider Consumption organization in VCF Automation, `auto.vmw.lab` (recipe 1.1).
+- The vCenter `vc01.vmw.lab` registered on the target too, so the workflow can run there.
+- A package signing certificate that works on `vco01`. If export fails with `500, OK`, fix that first (recipe 2.3).
+
+</Recipe>
+
+<Recipe type="how">
+
+**Create the package**
+
+1. On `vco01`, go to **Assets** > **Packages** and click **New Package**.
+2. On the **General** tab, enter the name `com.vcfguide.chapter6` and the description `Chapter 6 example content: Report powered-on VMs`. Keep the name to letters, digits, and dots. Special characters aren't allowed.
+3. Open the **Content** tab and click **Add**. Find **Report powered-on VMs**, select it, and click **Add**.
+4. Click **Create**.
+5. Open the package again and look at the **Content** tab. Besides the workflow, it now lists the action `countPoweredOnVms` and the configuration element `vcfguide-ch6-settings`. Orchestrator found them by reading the workflow, and added them when it created the package.
+
+<Figure n="6.5" caption="A package with its dependencies, after it was created."
+  capture="<b>Assets > Packages</b>, package <code>com.vcfguide.chapter6</code>, <b>Content</b> tab listing the workflow <b>Report powered-on VMs</b>, the action <code>com.vcfguide.chapter6/countPoweredOnVms</code>, and the configuration element <code>vcfguide-ch6-settings</code>, with type and version columns." />
+
+<Verify>On 9.1.1, check that the <b>Content</b> tab shows dependencies only after the package is created (as the 9.0 documentation says), how it marks which items you added and which were added as dependencies, and whether the tabs are named <b>General</b> and <b>Content</b>.</Verify>
+
+**Export it**
+
+6. In the list of packages, click **Export** on `com.vcfguide.chapter6`. The export dialog offers three options:
+
+| Option | What it adds | For this package |
+|---|---|---|
+| **Add configuration attribute values to package** | The values of configuration element variables | On |
+| **Add configuration SecureString attribute values to package** | The values of `SecureString` variables, such as passwords | Off |
+| **Add global tags to package** | The global tags on the objects | Off |
+
+7. Under the access rights for whoever imports the package, leave **View contents**, **Add to package**, and **Edit contents** selected.
+8. Click **Ok**. Your browser downloads `com.vcfguide.chapter6.package` to its download folder.
+
+<Figure n="6.6" caption="The export options of a package."
+  capture="Export dialog for <code>com.vcfguide.chapter6</code>: <b>Add configuration attribute values to package</b> selected, <b>Add configuration SecureString attribute values to package</b> and <b>Add global tags to package</b> cleared, and the three access rights <b>View contents</b>, <b>Add to package</b>, <b>Edit contents</b> selected." />
+
+**Import it into the second Orchestrator**
+
+9. In VCF Automation, open the Provider Consumption organization's **Orchestrate** tab, go to **Assets** > **Packages**, and click **Import**. Browse to `com.vcfguide.chapter6.package` and click **Open**.
+10. The **General** tab shows the package's name, description, number of items, and the certificate it was signed with. The certificate is `vco01`'s package signing certificate, which this server hasn't seen before. Check that it's the one you expect (recipe 2.3), and confirm that you trust it.
+11. Open the **Package elements** tab. All three elements are new on this server, so all three are selected.
+12. Leave **Import Configuration Attribute Values** selected, so `reportPrefix` arrives with its value. In the tags drop-down, choose not to import tags.
+13. Click **Import**.
+
+<Figure n="6.7" caption="The package's signing certificate, shown on import."
+  capture="Import dialog on the embedded Orchestrator at <code>auto.vmw.lab</code>, <b>General</b> tab: package <code>com.vcfguide.chapter6</code>, description, 3 items, and the certificate details of <code>vco01</code>'s signing certificate with the trust prompt." />
+
+<Verify>On 9.1.1, record how the import dialog asks you to trust a new publisher certificate (a check box, a separate prompt, or a button), and what happens if you decline.</Verify>
+
+14. Check the result on the target. The workflow is in **VCF Orchestrator Guide/Chapter 6**, the action is in `com.vcfguide.chapter6`, and the configuration element is in **VCF Orchestrator Guide/Chapter 6**, with `reportPrefix` set to `VCF Guide` and `apiToken` empty.
+15. Open `vcfguide-ch6-settings` on the target, enter a value for `apiToken`, and save. Run **Report powered-on VMs**. It logs the same kind of line as on `vco01`.
+
+**Import a newer version**
+
+16. Back on `vco01`, open **Report powered-on VMs**, change the log text from *VMs powered on* to *VMs are powered on*, raise the **Version** to `1.2.0`, and save.
+17. Open the package `com.vcfguide.chapter6` and save it, so it picks up the new version, and export it again as in steps 6 to 8.
+18. Import it on the target again. This time the **Package elements** tab compares each element with the one already there. The workflow is newer, so it's selected. The action and the configuration element are the same version as on the server, so they aren't.
+19. Clear **Import Configuration Attribute Values**. The target already has its own values, and an import with values would overwrite them. Click **Import**.
+
+<Figure n="6.8" caption="An import that compares versions with the server."
+  capture="Import dialog on <code>auto.vmw.lab</code>, <b>Package elements</b> tab: <b>Report powered-on VMs</b> <code>1.2.0</code> (server <code>1.1.0</code>) selected; <code>countPoweredOnVms</code> and <code>vcfguide-ch6-settings</code> at the same version, not selected; <b>Import Configuration Attribute Values</b> cleared." />
+
+<Verify>On 9.1.1, check whether a package must be saved or rebuilt to pick up a newer version of an element it already holds (step 17), or whether export always takes the current version. Record how the <b>Package elements</b> tab shows the server's version beside the package's.</Verify>
+
+</Recipe>
+
+<Recipe type="works">
+
+**What goes in.** When you add an object to a package, Orchestrator reads it for references: the actions and workflows a workflow calls, the configuration elements its variables are bound to, the resource elements a script loads. Each one found is added, and so are its own references, until nothing new turns up. That's why you only added the workflow. The search reads scripts as text, so an action named in a comment, such as `// was System.getModule("com.vcfguide.chapter6").oldCount()`, is added too. Broadcom calls this expected behaviour. Remove dead references from scripts rather than fight them in the package.
+
+**What doesn't.** A package carries content, not the plug-ins or plug-in configuration that content needs. The target must already have the same plug-ins (recipe 5.1), the same vCenter or REST host registered under the same name, and the same environments for Python, Node.js, or PowerShell actions (recipe 4.3). The import doesn't warn you. The workflow imports, then fails on its first run.
+
+<Verify>The 9.1 REST API can add an action environment and an environment repository to a package (<code>POST /packages/&#123;packageName&#125;/environment/&#123;envId&#125;</code> and <code>…/environment_repository/&#123;envRepoId&#125;</code>). Check on 9.1.1 whether a package that holds a Python action adds its environment as a dependency, and whether the client lets you add one by hand.</Verify>
+
+**Versions decide what's overwritten.** On import, each element is matched with the object of the same ID on the server, not the same name. If the package's version number is higher, the element is selected and replaces the server's object. If it's the same or lower, it isn't selected. You can still select an older version by hand, and then it replaces a newer one. This is why version numbers matter (recipe 6.1): a change saved without raising the number looks unchanged to an import, and is silently skipped.
+
+<Verify>The match by object ID rather than by name is how packages have always worked; confirm on 9.1.1 that a workflow with the same name but a different ID imports beside the existing one rather than over it.</Verify>
+
+**Values belong to the server.** A configuration element's variables and their values are separate things in a package. The first import of `vcfguide-ch6-settings` brought the variables and the value of `reportPrefix`. The second import, with **Import Configuration Attribute Values** cleared, would leave the target's values alone even if the element itself were updated. `SecureString` values travel only if you choose **Add configuration SecureString attribute values to package** on export. Leave it off unless both servers really should share a secret, and then treat the `.package` file like a password.
+
+**Signed, and rights attached.** Orchestrator signs every package with its signing certificate, and the certificate travels in the file. On import, the target checks the signature and shows you the certificate, so you can tell where the package came from and that it wasn't changed on the way. The access rights you chose on export, **View contents**, **Add to package**, and **Edit contents**, travel with the elements and limit what the importing server may do with them. Clearing **Edit contents**, for example, gives the target workflows that run but can't be changed there.
+
+<Verify>Export <code>com.vcfguide.chapter6</code> with <b>Edit contents</b> cleared, import it on <code>auto.vmw.lab</code>, and record what an administrator there can and can't do with the workflow on 9.1.1.</Verify>
+
+<ThenNow
+  then="Create a package in the Java client's <b>Packages</b> view, drag workflows into it, then right-click it to export or rebuild it."
+  now="Create packages under <b>Assets</b> > <b>Packages</b>, add content on the <b>Content</b> tab, and export with three options and three access rights. The REST API can do all of it, for scripted promotion (recipe 6.4)." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**One package per deliverable.** Name packages like action modules, in reverse DNS, and keep one package per thing you ship: a use case, a team's library, a product integration. Then the package's version history (packages have one too, recipe 6.1) tells you what each delivery contained.
+
+**Back up library content you changed.** An import can overwrite any object with the same ID, including workflows and actions that ship with Orchestrator under `com.vmware.library` if a package contains a changed copy. Broadcom's import procedure starts with "back up any standard objects you have modified". Better still, never modify them: duplicate the workflow or action into your own folder or module and change the copy.
+
+**Resource elements on their own.** A single resource element, such as an HTML template or a JSON file, can also be exported and imported on its own under **Assets** > **Resources**, without a package. Everything else needs one.
+
+**Rebuild after big changes.** If you remove a reference from a workflow, the package still holds the element it used to call. The REST API has a **Rebuild Package** call, `POST /vco/api/packages/{packageName}/rebuild`, that scans the package's content again. To drop an element by hand, remove it on the **Content** tab. A dependency can only be removed after the object that needs it.
+
+<Verify>Check whether the 9.1.1 client has a rebuild control for a package, and what the REST call's rebuild does to elements that are no longer referenced.</Verify>
+
+**Read a package before you import it.** The import dialog's **General** and **Package elements** tabs are a preview. Nothing changes until you click **Import**. Use them to check what a package from a vendor or a colleague would overwrite before you let it.
+
+**Package files are ZIP archives.** You can open a `.package` file with any ZIP tool to see what's inside: the elements and their signatures. Don't edit it. A changed element no longer matches its signature, and the import refuses it.
+
+<Verify>Open <code>com.vcfguide.chapter6.package</code> with a ZIP tool and record its layout on 9.1.1 (the 9.1 API reference gives its media type as <code>application/zip</code>). Change one byte of an element and confirm that the import refuses it.</Verify>
+
+</Recipe>
+
+<Recipe type="see">
+
+- [2.3 Managing the package signing certificate](../../../chapter-2/recipes/03-signing-certificate/), for the certificate shown in step 10 and the `500, OK` error.
+- [4.7 Working with configuration elements in code](../../../chapter-4/recipes/07-configuration-elements/), on keeping values per server.
+- [6.4 Promoting content from development to production](../04-promoting-content/), which exports and imports this package through the REST API.
+- Broadcom TechDocs (VCF 9.0): [Managing Packages](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/managing-packages-in-vro.html), [Create a Package](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/managing-packages-in-vro/create-a-package-in-the-vrealize-orchestrator-operations-client.html), [Export a Package](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/managing-packages-in-vro/export-a-package-in-the-operations-client.html), and [Import a Package](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/managing-packages-in-vro/import-a-package-in-the-operations-client.html).
+- Broadcom developer documentation (VCF Operations Orchestrator API 9.1): [Packages service](https://developer.broadcom.com/xapis/vcf-operations-orchestrator-api/9.1/packages-service/).
+- Broadcom KB [445863](https://knowledge.broadcom.com/external/article/445863/package-creation-in-vcf-operations-orche.html): package creation fails with `500, OK`.
+
+</Recipe>

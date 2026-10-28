@@ -1,0 +1,206 @@
+---
+title: Resource elements
+description: Recipe 7.6 — keep whole files on the Orchestrator server. Import an HTML template as a resource element, bind it to a workflow, fill it in from a script, save the result as a second resource element, and update both from the client and the REST API.
+sidebar:
+  label: 7.6 Resource elements
+  order: 6
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+A configuration element holds values: a number, a host name, a password. Some things a workflow needs aren't values but files: an HTML template for a report mail, a JSON body for a REST call, a shell script to copy to a server, a logo. Pasting them into a script works until someone needs to change the wording, and then they have to edit code.
+
+A **resource element** is a file stored on the Orchestrator server. Any workflow can use it, it has a version history, and it travels in packages like everything else. In this recipe you import an HTML template, fill it in from a workflow with the powered-on VM count from recipe 7.3, and save the finished report as a second resource element that other tools can fetch.
+
+<Recipe type="ready">
+
+- The workflow **Count powered-on VMs** from recipe 7.3, and `vc01.vmw.lab` registered (recipe 1.9).
+- The folder **VCF Orchestrator Guide/Chapter 7** under **Library** > **Workflows**.
+- A text editor, to write the template file.
+- The `vro` helper from recipe 7.1, for steps 13 and 14.
+
+</Recipe>
+
+<Recipe type="how">
+
+**Write the template**
+
+1. On your workstation, save this file as `vcfguide-vm-report.html`. The words in double square brackets are placeholders that the workflow will replace:
+
+```html title="vcfguide-vm-report.html"
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>VM report for [[vcenter]]</title></head>
+<body style="font-family: sans-serif">
+  <h1>Powered-on VMs on [[vcenter]]</h1>
+  <p>[[count]] of [[total]] VMs were powered on at [[generated]].</p>
+  <table border="1" cellpadding="4">
+    <tr><th>VM</th><th>Power state</th></tr>
+    [[rows]]
+  </table>
+</body>
+</html>
+```
+
+**Import it**
+
+2. Go to **Assets** > **Resources**. Create the folder **VCF Orchestrator Guide**, and inside it **Chapter 7**, if they aren't there yet.
+3. Select **Chapter 7** and click **Import**. Choose `vcfguide-vm-report.html`. The resource element appears in the folder with the name of the file and the MIME type `text/html`.
+4. Open it. The **General** tab shows its name, version, MIME type, and size. Give it the version `1.0.0` and the description `HTML template for the Chapter 7 VM report.` and save.
+
+<Figure n="7.16" caption="An imported resource element."
+  capture="<b>Assets > Resources</b>, folder <b>VCF Orchestrator Guide/Chapter 7</b>, resource element <code>vcfguide-vm-report.html</code> open on the <b>General</b> tab: MIME type <code>text/html</code>, size, version <code>1.0.0</code>, description, and the buttons to export and update the content." />
+
+<Verify>Record the 9.1.1 labels in <b>Assets</b> > <b>Resources</b>: the import button, whether the content can be viewed or edited in the client (a <b>Viewer</b> or editor tab), and the button that replaces the content with a new file. Also check whether the name keeps the <code>.html</code> extension after import.</Verify>
+
+**Use it in a workflow**
+
+5. In **VCF Orchestrator Guide/Chapter 7**, create the workflow **Build VM report**, with no inputs and one output, `html` (`string`).
+6. On the **Variables** tab, add the variable `template` of type `ResourceElement`. Click its value and pick `vcfguide-vm-report.html` from **VCF Orchestrator Guide/Chapter 7**.
+7. Add a scriptable task called `Fill template`, with `template` in and `html` out:
+
+```javascript title="Build VM report — Fill template"
+function escapeHtml(s) {
+    return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+var vms = VcPlugin.getAllVirtualMachines();
+var rows = [];
+var poweredOn = 0;
+for (var i = 0; i < vms.length; i++) {
+    var state = vms[i].runtime.powerState.value;
+    if (state === "poweredOn") {
+        poweredOn++;
+    }
+    rows.push("<tr><td>" + escapeHtml(vms[i].name) + "</td><td>" + state + "</td></tr>");
+}
+
+var text = template.getContentAsMimeAttachment().content;
+html = text
+    .replace(/\[\[vcenter\]\]/g, "vc01.vmw.lab")
+    .replace(/\[\[count\]\]/g, String(poweredOn))
+    .replace(/\[\[total\]\]/g, String(vms.length))
+    .replace(/\[\[generated\]\]/g, new Date().toString())
+    .replace(/\[\[rows\]\]/g, rows.join("\n    "));
+System.log("Report built: " + poweredOn + " of " + vms.length + " powered on, " + html.length + " characters");
+```
+
+8. Save and run it. The run's **Variables** tab shows the output `html`, the template with every placeholder filled in.
+
+<Figure n="7.17" caption="A workflow variable bound to a resource element, and the filled-in result."
+  capture="Workflow editor for <b>Build VM report</b>, <b>Variables</b> tab: variable <code>template</code>, type <code>ResourceElement</code>, value <code>vcfguide-vm-report.html</code>; beside it, a finished run's <b>Variables</b> tab with the output <code>html</code> starting <i>&lt;!doctype html&gt;</i> and the log line <i>Report built: N of M powered on</i>." />
+
+**Save the result as a resource element**
+
+9. Add a second scriptable task after `Fill template`, called `Save report`, with `html` in:
+
+```javascript title="Build VM report — Save report"
+var path = "VCF Orchestrator Guide/Chapter 7";
+var name = "vcfguide-vm-report-latest.html";
+
+var mime = new MimeAttachment();
+mime.name = name;
+mime.mimeType = "text/html";
+mime.content = html;
+
+var category = Server.getResourceElementCategoryWithPath(path);
+var existing = null;
+var elements = category.resourceElements || [];
+for (var i = 0; i < elements.length; i++) {
+    if (elements[i].name === name) {
+        existing = elements[i];
+    }
+}
+
+if (existing) {
+    existing.setContentFromMimeAttachment(mime);
+    System.log("Updated " + path + "/" + name);
+} else {
+    Server.createResourceElement(category, name, mime);
+    System.log("Created " + path + "/" + name);
+}
+```
+
+10. Run the workflow twice. The first run logs *Created …*, the second *Updated …*. In **Assets** > **Resources**, `vcfguide-vm-report-latest.html` is in **Chapter 7**, and its **Version History** tab has an entry for each run.
+
+<Verify>Confirm on 9.1.1 the signature of <code>Server.createResourceElement</code> (a category object or a path, a name, and a <code>MimeAttachment</code> or a file, with or without a separate MIME type argument), and that <code>setContentFromMimeAttachment</code> saves at once. Check whether a resource element created in a run can be read back with <code>getContentAsMimeAttachment</code> in the same run. On 8.x it couldn't until the run had gone through a user interaction (Broadcom KB 314861).</Verify>
+
+**Change the template without touching the workflow**
+
+11. Edit `vcfguide-vm-report.html` on your workstation: change the heading to `VMs running on [[vcenter]]`.
+12. In **Assets** > **Resources**, open the template, replace its content with the edited file, and save. Run **Build VM report** again. The new heading is in the output, and the workflow's version hasn't changed.
+
+**Read and update it from outside**
+
+13. Find the template's ID and download its content with the REST API:
+
+```bash
+. vro-env.sh
+vro GET '/resources' | jq -r '.link[] | select(.attributes[]? | (.name=="name" and .value=="vcfguide-vm-report.html")) | .href'
+RES_ID="<ID from the href>"
+vro GET "/resources/$RES_ID" -H "Accept: text/html" -o template-from-server.html
+```
+
+14. Upload a new version from a pipeline, without the client:
+
+```bash
+vro POST "/resources/$RES_ID" -F "file=@vcfguide-vm-report.html"
+```
+
+<Verify>The 9.x REST reference lists, in the <b>Resource Service</b>, <i>List all resources</i>, <i>Get a resource</i>, <i>Update resource content</i>, <i>Update resource metadata</i>, <i>Import a resource</i>, <i>Delete a resource</i> and <i>Find resource usages</i>, but not the paths, media types, or form field names. Check steps 13 and 14 in the Swagger UI on <code>vco01</code>: the response shape of <code>GET /resources</code>, the <code>Accept</code> header that returns the content rather than the metadata, and the multipart field name for the upload.</Verify>
+
+</Recipe>
+
+<Recipe type="works">
+
+**What a resource element is.** A resource element is a file, a name, a MIME type, and a version, stored in the Orchestrator database. Orchestrator doesn't read or run the content. It just gives the bytes to whoever asks. That's why anything fits: HTML, JSON, XML, a script, an image. The limit is size: a resource element can be at most 16 MB.
+
+**Two ways in.** Step 6 binds the element to a workflow variable. The workflow then holds a reference to that element, by its ID. A package built from the workflow picks the element up and carries it along (recipe 6.2), and renaming or moving the element doesn't break the workflow. Step 9 finds an element by folder and name while the run is going. That suits elements that a run creates, or picks from many, but a package doesn't know about them, so add them to the package yourself.
+
+**Content in scripts.** `getContentAsMimeAttachment()` returns a `MimeAttachment`, with the properties `name`, `mimeType`, and `content`. For text, `content` is a string. To write, fill a `MimeAttachment` and give it to `setContentFromMimeAttachment` on an existing element, or to `Server.createResourceElement` for a new one.
+
+| Need | Use |
+|---|---|
+| Typed values a workflow reads: numbers, names, credentials | A configuration element (recipe 4.7) |
+| A whole file: a template, a body, a script, an image | A resource element |
+| A setting of the Orchestrator server itself | A system property (recipe 2.8) |
+
+**One copy, many users.** Every workflow that binds the template reads the current content when it runs. Change the content once, as in step 12, and every workflow uses the new version on its next run. The other side of that: a mistake in the template breaks every workflow at once. The element's **Version History** tab (recipe 6.1) lets you compare and restore an earlier version.
+
+**Binary files.** For an image or another binary file, `content` isn't a string you can safely change. Read and write such files whole, for example to attach them to a mail (recipe 5.5).
+
+<Verify>Check on 9.1.1 how <code>content</code> arrives for a binary resource element, such as a PNG: a string, a byte array, or base64 text, and whether a <code>MimeAttachment</code> read from one can be attached to a mail unchanged.</Verify>
+
+<ThenNow
+  then="Import resource elements in the Java client's <b>Resources</b> view, and update them with right-click > <b>Update resource</b>."
+  now="Import, export, and update resource elements under <b>Assets</b> > <b>Resources</b> in the browser client. Each save is kept on the element's <b>Version History</b> tab, and the REST API's <b>Resource Service</b> can do the same from a pipeline." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**Keep secrets out.** A resource element isn't encrypted and has no `SecureString` type. A template may hold the words of a mail, but not a password or a token. Put those in a configuration element and fill them in at run time.
+
+**Which workflows use this?** Before you change a shared template, check what depends on it. The REST API's **Resource Service** has a *Find resource usages* call that lists the workflows and actions that reference an element.
+
+<Verify>Check whether the 9.1.1 client shows a resource element's usages, for example on a <b>References</b> or <b>Used by</b> tab, and record the label.</Verify>
+
+**Placeholders.** Square brackets work here because HTML doesn't use them. For JSON templates, pick a marker that can't appear in your data, or skip placeholders and build the JSON in the script with `JSON.stringify` (recipe 5.6).
+
+**Saving reports elsewhere.** A resource element is a convenient place to drop a small report, because the REST API can serve it to anyone with access. For history, keep older reports somewhere else, such as a file share or a web server, because the version history isn't meant to hold hundreds of versions of a generated file.
+
+</Recipe>
+
+<Recipe type="see">
+
+- [4.7 Working with configuration elements in code](../../../chapter-4/recipes/07-configuration-elements/), for values rather than files.
+- [5.5 Sending and reading mail](../../../chapter-5/recipes/05-mail/), to send the report as a mail body.
+- [6.2 Packages](../../../chapter-6/recipes/02-packages/), for what goes in a package with a workflow.
+- [7.3 Policies and event triggers](../03-policies/), and [7.7 Scheduling workflows](../07-scheduling/), to build the report on a timer.
+- Broadcom TechDocs: [Managing resource elements](https://techdocs.broadcom.com/us/en/vmware-cis/aria/aria-automation/8-18/using-the-vrealize-orchestrator-client-8-18/managing-resource-elements-in-vro.html), for what a resource element holds and the 16 MB limit. The 9.x guide covers the same ground under [Configuration of VCF Operations orchestrator](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-1/configuration-of-vmware-cloud-foundation-operations-orchestrator.html).
+- Broadcom developer portal: [VCF Operations orchestrator API, Resource Service](https://developer.broadcom.com/xapis/vcf-operations-orchestrator-api/latest/resource-service/).
+- Broadcom KB [314861](https://knowledge.broadcom.com/external/article/314861/resource-elements-newly-created-in-aria.html): a resource element created in a run can't be read in the same run.
+
+</Recipe>

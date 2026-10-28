@@ -88,3 +88,112 @@ Lab: VCF 9.1, Orchestrator 9.1.1. Save PNGs at roughly 1400 px wide, crop to the
 | 4.7 | `ch04/fig-4-7.png` | **System Settings > Performance and Features > Environment Repositories**, **Default Public Repositories** on, **Manage Repositories** visible | — |
 | 4.8 | `ch04/fig-4-8.png` | Environment `vcfguide-python-crypto`, **Download Logs** tab: pip installing `cryptography-43.0.3` and `cffi`, no errors | — |
 | 4.9 | `ch04/fig-4-9.png` | Run of action `getCertificateExpiry` with `vc01.vmw.lab`, `443`: result `host`, `subject`, `notAfter`, `daysLeft`, and the printed log line | — |
+| 4.10 | `ch04/fig-4-10.png` | Run of action `resolveHostNames` (**Runtime** = **Node.js 22**) with `vc01.vmw.lab`, `vco01.vmw.lab`, `nothing.vmw.lab`: result with two addresses and one `not found`, three `console.log` lines | — |
+| 4.11 | `ch04/fig-4-11.png` | Environment `vcfguide-node-semver`, **Download Logs** tab: npm adding `semver@7.6.3`, no errors | — |
+| 4.12 | `ch04/fig-4-12.png` | Run of action `checkMinimumVersion` (runtime `vcfguide-node-semver`) with `9.0.1.0` and `9.0.0`: result `version`, `minimum`, `ok` = `true`, and the log line | — |
+| 4.13 | `ch04/fig-4-13.png` | **Script** tab of action `formatUptime`: **Runtime** = **PowerShell 7.4**, input `seconds` (`number`), return type `string`, `Handler` function | — |
+| 4.14 | `ch04/fig-4-14.png` | **Script** tab of action `getSnapshotReport`: **Runtime** = **PowerCLI 13 (PowerShell 7.4)**, inputs `vcenter`, `user`, `password` (`SecureString`), `maxAgeDays`, return type `Properties`, **Memory limit** `512`, **Timeout** `300` | — |
+| 4.15 | `ch04/fig-4-15.png` | Run of `getSnapshotReport` against `vc01.vmw.lab`, `maxAgeDays` = `7`: result `vcenter`, `maxAgeDays`, `count`, multi-line `report`, `Write-Host` log line; password blurred | PowerShell plug-in host configuration |
+| 4.16 | `ch04/fig-4-16.png` | Run of **Log at every level**, **Logs** tab: info, warning, and error lines with the `[Log at every level <run ID>]` prefix, level filter open | Java client Logs tab |
+| 4.17 | `ch04/fig-4-17.png` | The 9.1.1 view that lists `Server.*` entries for a run of **Log at every level** (run **Events** tab or audit view): the warning and the error with short and long text | Java client Events tab |
+| 4.18 | `ch04/fig-4-18.png` | **System Settings > Log Configuration**: server and scripting log levels at `INFO`, and any rotation settings | Control Center Logs page |
+| 4.19 | `ch04/fig-4-19.png` | **Assets > Configurations**, folders **VCF Orchestrator Guide > Chapter 4 > vCenters**, element `vc01.vmw.lab`, **Variables** tab: `user` (`string`), `password` (`SecureString`, hidden) | Java client Configurations view, Attributes tab |
+| 4.20 | `ch04/fig-4-20.png` | **Variables** tab of **Report old snapshots**, `maxAgeDays` (`number`) being edited: **Bind to configuration**, `vcfguide-settings`, `snapshotMaxAgeDays` | Java client "Link to configuration attribute" |
+| 4.21 | `ch04/fig-4-21.png` | Run of **Report old snapshots**, **Variables** tab (`vcenterName`, `maxAgeDays` = `7`, `report`), beside `vcfguide-settings` **Variables** tab with `lastSnapshotReport` set to the run's time | — |
+
+## Chapter 5
+
+| Figure | File | What to capture | Replaces (old cookbook) |
+|---|---|---|---|
+| 5.1 | `ch05/fig-5-1.png` | **System Settings > Plug-ins** on `vco01`: full list with name, version, state; **vCenter**, **HTTP-REST**, **SSH**, **SQL** visible; **Add Plug-in** button | Control Center Manage Plug-ins page |
+| 5.2 | `ch05/fig-5-2.png` | **Administration > Inventory**, **vSphere vCenter Server** > `vc01.vmw.lab` down to a VM, VM selected, details pane with `VC:VirtualMachine` and properties | Java client inventory tab |
+| 5.3 | `ch05/fig-5-3.png` | **Add Plug-in** dialog after **Next**: plug-in name, version, vendor, licence agreement check box, **Install** button | Control Center plug-in install page |
+| 5.4 | `ch05/fig-5-4.png` | Run dialog of **Add a REST host**, **Host Properties** tab: `vc01-rest`, `https://vc01.vmw.lab`, timeouts `30`/`60`, certificate acceptance yes, **Redirect strategy** `defaultRedirect` | Add a REST host dialog (Java client) |
+| 5.5 | `ch05/fig-5-5.png` | Run of **Invoke a REST operation** for `vc01-rest` / `Create session`, **Variables** tab: `statusCode` `201`, `contentAsString` with the token (mostly blurred) | — |
+| 5.6 | `ch05/fig-5-6.png` | Run of action `com.vcfguide.chapter5/listVcenterVms` with `vc01-rest`: result array of VM names, power states, IDs; **Logs** tab with the count line | — |
+| 5.7 | `ch05/fig-5-7.png` | Run dialog of **Generate key pair**: **RSA**, **4096**, passphrase filled in (hidden) | — |
+| 5.8 | `ch05/fig-5-8.png` | Run of **Run SSH command** on `syslog01.vmw.lab` with `uptime`, **Variables** tab with the output line and `exitCode` `0` | Run SSH command dialog (Java client) |
+| 5.9 | `ch05/fig-5-9.png` | Failed run of action `com.vcfguide.chapter5/runSshCommand` with `ls /nonexistent`: error with exit code `2` and *No such file or directory*; **Logs** tab with the *Running on* line | — |
+| 5.10 | `ch05/fig-5-10.png` | Run dialog of **Add a database**: `db01-vcfguide`, **PostgreSQL**, `jdbc:postgresql://db01.vmw.lab:5432/vcfguide`, **User credentials** tab visible | Add a database dialog (Java client) |
+| 5.11 | `ch05/fig-5-11.png` | Run of **Record VM facts** with three VMs: **Logs** tab *3 rows written to db01-vcfguide*, **Variables** tab `rowsWritten` `3` | — |
+| 5.12 | `ch05/fig-5-12.png` | Run of action `com.vcfguide.chapter5/latestVmFacts` with `db01-vcfguide`, `5`: three result lines with VM name, power state, vCPUs, memory, time | — |
+| 5.13 | `ch05/fig-5-13.png` | Run dialog of **Configure mail**, **Host** tab: `mail01.vmw.lab`, port `587`; **Credentials** and **Email Content** tabs visible | Configuration interface Mail tab |
+| 5.14 | `ch05/fig-5-14.png` | Run of **Send notification** to `mayank@vmw.lab`, completed; **Variables** tab with empty SMTP inputs and **Use STARTTLS** = **Yes**; optionally the received message | Send notification dialog (Java client) |
+| 5.15 | `ch05/fig-5-15.png` | Received *VM facts report* HTML message with the bulleted list; **Logs** tab of the `mailVmFactsReport` run with the *Mail … sent to* line | — |
+| 5.16 | `ch05/fig-5-16.png` | Run of action `com.vcfguide.chapter5/vmFactsToJson` with two VMs: indented JSON result with `vcenter`, `generated`, `vms` array | — |
+| 5.17 | `ch05/fig-5-17.png` | Runs of `vmFactsToXml` (XML result with two `vm` elements) and `readVmFactsXml` (two result lines), side by side | E4X scripting example |
+| 5.18 | `ch05/fig-5-18.png` | Run dialog of **Add a broker**, **AMQP connection properties** tab: `mq01.vmw.lab`, `5672`, virtual host `/`, **Use SSL** off, user `vcfguide`, password hidden | Add a broker dialog (Java client) |
+| 5.19 | `ch05/fig-5-19.png` | Run of **Receive a text message** on `mq01`, queue `vcfguide.vm-facts`, **Variables** tab with output `hello from vco01` | — |
+| 5.20 | `ch05/fig-5-20.png` | Run of `receiveVmFacts` with `mq01`: result array of two `Properties`; beside it, RabbitMQ management UI for `vcfguide.vm-facts` with one message in and one out | — |
+| 5.21 | `ch05/fig-5-21.png` | Run dialog of **Add an Active Directory server**: `dc01.vmw.lab`, `636`, `DC=vmw,DC=lab`, **Use SSL** = **Yes**, `@vmw.lab`; shared-session and **Alternative hosts** tabs visible | Add an Active Directory server (Java client) |
+| 5.22 | `ch05/fig-5-22.png` | Run of **Create lab user** for `jdoe`, **Logs** tab with *Created jdoe (Jane Doe) in VCF Guide and added it to vcfguide-users*; **Variables** tab with `user` set; password hidden | — |
+
+## Chapter 6
+
+| Figure | File | What to capture | Replaces (old cookbook) |
+|---|---|---|---|
+| 6.1 | `ch06/fig-6-1.png` | **Version History** tab of **Report powered-on VMs** on `vco01`: entries `1.0.0` and `1.1.0` with user and time; **Diff against**, **Restore**, **Diff Visually** visible | Java client "Show version history" dialog |
+| 6.2 | `ch06/fig-6-2.png` | Text comparison of `1.0.0` against the current version: `version`, `description`, and the three changed script lines highlighted | "Diff Against Current" window |
+| 6.3 | `ch06/fig-6-3.png` | **Diff Visually** for **Report powered-on VMs**, `1.0.0` beside `1.1.0`, changes marked, **Use Version** visible | — |
+| 6.4 | `ch06/fig-6-4.png` | **Deleted Items** with **Report powered-on VMs** listed (type, deletion time), selected, restore button visible | — |
+| 6.5 | `ch06/fig-6-5.png` | **Assets > Packages**, `com.vcfguide.chapter6`, **Content** tab: workflow, action `countPoweredOnVms`, configuration element `vcfguide-ch6-settings`, type and version columns | Java client package Contents tab |
+| 6.6 | `ch06/fig-6-6.png` | Export dialog for `com.vcfguide.chapter6`: configuration values on, SecureString values and global tags off, **View contents** / **Add to package** / **Edit contents** on | Java client export package dialog |
+| 6.7 | `ch06/fig-6-7.png` | Import dialog on `auto.vmw.lab`, **General** tab: name, description, 3 items, `vco01` signing certificate and the trust prompt | Java client import package certificate dialog |
+| 6.8 | `ch06/fig-6-8.png` | Import dialog on `auto.vmw.lab`, **Package elements** tab: workflow `1.2.0` (server `1.1.0`) selected, action and configuration element not selected; **Import Configuration Attribute Values** cleared | Java client import package element list |
+| 6.9 | `ch06/fig-6-9.png` | **Administration > Git Repositories > Add Repository** on `vco01`: HTTPS URL of `vcfguide-content`, user name, token hidden, **Validate** succeeded, **Name**, **Make active repository**, branch `develop` | — |
+| 6.10 | `ch06/fig-6-10.png` | **Administration > Git Repositories** list: `vcfguide-content`, branch `develop`, status **Active** | — |
+| 6.11 | `ch06/fig-6-11.png` | **Administration > Git History**, **Push** dialog: title `Chapter 6 example content`, description, the three objects selected | — |
+| 6.12 | `ch06/fig-6-12.png` | GitHub, `vcfguide-content` on `develop`: the pushed commit and the folder tree, opened to the file of **Report powered-on VMs** | — |
+| 6.13 | `ch06/fig-6-13.png` | Diagram (to be drawn): `vco01` (development) to `auto.vmw.lab` (production); top route package export → `releases/` → import without values; bottom route push `develop` → pull request → `main` → pull; values and secrets set on each side | — |
+| 6.14 | `ch06/fig-6-14.png` | Terminal running `bash promote-package.sh`: *Exported …* line, JSON import result, `HTTP 202`; the `releases` folder with two dated files | — |
+| 6.15 | `ch06/fig-6-15.png` | GitHub pull request `develop` → `main`, **Files changed** with the changed lines of **Report powered-on VMs**, approving review | — |
+| 6.16 | `ch06/fig-6-16.png` | **Administration > Git History** on `auto.vmw.lab`, repository `vcfguide-content` on `main`, merge commit at the top | — |
+| 6.17 | `ch06/fig-6-17.png` | Terminal: `curl … /vco/api/packages/import-details \| jq` against `vco01.vmw.lab`, output with `contentVerified` = `true` and `certificateInfo` (common name `VMW Lab Orchestrator`, dates, SHA-1 fingerprint partly blurred) | — |
+| 6.18 | `ch06/fig-6-18.png` | Terminal: `bash check-package.sh com.vcfguide.chapter6.package`: signer, fingerprint, *Intact: true*, *Trusted here: false*, three elements with package and server versions, *OK to import.* | Java client import package certificate dialog |
+| 6.19 | `ch06/fig-6-19.png` | Terminal: `bash check-package.sh tamper/tampered.package`: same signer and fingerprint, *Intact: false*, *REFUSED: the content doesn't match its signature.* | — |
+
+## Chapter 7
+
+| Figure | File | What to capture | Replaces (old cookbook) |
+|---|---|---|---|
+| 7.1 | `ch07/fig-7-1.png` | Browser at `https://vco01.vmw.lab/vco/api/docs`: Swagger UI, **Workflow Service** expanded, `GET /workflows` after **Execute** with the generated `curl`, code `200`, start of the JSON body; `Authorization` header blurred | REST API reference page |
+| 7.2 | `ch07/fig-7-2.png` | Terminal: `. vro-env.sh` prompt, `vro GET /about \| jq .` showing 9.1.1, then `/workflows?conditions=name=…` printing the ID of **List VMs by name** and `Chapter 3` | — |
+| 7.3 | `ch07/fig-7-3.png` | VCF Automation 9.1 Provider Consumption organization portal, user menu > **My Account** > **API Tokens**, new token `vcfguide-scripts` just created, copy button and "won't be shown again" warning; token blurred | — |
+| 7.4 | `ch07/fig-7-4.png` | Terminal: `POST …/executions` and the `Location` line, state lines ending in `completed`, the `vmNames` values, log lines from `/syslogs` | Starting a workflow through the REST API |
+| 7.5 | `ch07/fig-7-5.png` | **Activity > Workflow Runs** filtered on **List VMs by name**: the API-started run at the top, **Started by** `svc-vcfguide@vsphere.local`, **Completed**, **Variables** tab with `namePattern` = `^vc` and `vmNames` | — |
+| 7.6 | `ch07/fig-7-6.png` | PowerShell 7: `./Start-VcfGuideWorkflow.ps1 -WorkflowId … -Inputs @{ namePattern = '^vc' }`, credential prompt answered, *Started https://vco01.vmw.lab/vco/api/workflows/…/executions/…*, state lines, `output-parameters` with `vmNames` | — |
+| 7.7 | `ch07/fig-7-7.png` | Policy editor for **VCF Guide VM count**, **Variables** tab: `minimumPoweredOn`, `number`, value `3`; **Array** and **Bind to configuration** visible | Java client policy attributes |
+| 7.8 | `ch07/fig-7-8.png` | Policy editor, **Definition** tab: root element with **OnInit** and **OnExit** script handlers; periodic event with **OnExecute** running **Count powered-on VMs**, interval five minutes, `minimumPoweredOn` bound to the policy variable | Java client policy Scripting tab |
+| 7.9 | `ch07/fig-7-9.png` | **Activity > Policy Runs** with `VM count every 5 minutes` **Running**; **Activity > Workflow Runs** filtered on **Count powered-on VMs**, runs five minutes apart, newest log *N of M VMs are powered on* | Java client running policy |
+| 7.10 | `ch07/fig-7-10.png` | Workflow editor for **Count powered-on VMs**, **General** tab: **Tags** field with `vcfguide`, `read-only`, `vcenter` as chips; **Version**, **Folder**, **Description** around it | Java client workflow tags |
+| 7.11 | `ch07/fig-7-11.png` | **Library > Workflows** filtered on the tag `read-only`: only **Count powered-on VMs** and **List VMs by name**, each showing its tags | Java client tag search |
+| 7.12 | `ch07/fig-7-12.png` | Run of the action **findVmsByTag** as a second user: input `tagName` = `vcfguide-backup`, **Logs** tab *2 VMs carry the tag vcfguide-backup*, returned array with two VM names from `vc01.vmw.lab` | — |
+| 7.13 | `ch07/fig-7-13.png` | **Activity > Workflow Runs** filtered on **Count a run**: five runs started in the same second, all **Completed**; one open on **Logs** with *runCount 0 -> 1*; `vcfguide-ch7-state` with `runCount` = `1` | — |
+| 7.14 | `ch07/fig-7-14.png` | Same five runs with the lock: end times about two seconds apart; two **Logs** tabs, *runCount 2 -> 3* and *runCount 3 -> 4*; `vcfguide-ch7-state` with `runCount` = `5` | Java client locking workflows |
+| 7.15 | `ch07/fig-7-15.png` | Run of the action **listLocks**, **Logs** tab: entry for `vcfguide-ch7-state` owned by the **Hold the lock** run's token ID; behind it, failed **Count a run** with *Gave up waiting for lock vcfguide-ch7-state after 60 seconds* | Java client Display all locks |
+| 7.16 | `ch07/fig-7-16.png` | **Assets > Resources**, **VCF Orchestrator Guide/Chapter 7**, `vcfguide-vm-report.html` on the **General** tab: MIME type `text/html`, size, version `1.0.0`, description, export and update buttons | Java client Resources view |
+| 7.17 | `ch07/fig-7-17.png` | **Build VM report** editor, **Variables** tab: `template`, type `ResourceElement`, value `vcfguide-vm-report.html`; beside it, a finished run's **Variables** tab with output `html` starting `<!doctype html>` and log *Report built: N of M powered on* | — |
+| 7.18 | `ch07/fig-7-18.png` | **Schedule** dialog for **Build VM report**: name `VM report every weekday`, description, **Starting user** open on its three choices; **Start** tomorrow 06:00, **Start if in the past** = **No**, daily recurrence at 06:00 Monday to Friday | Java client Schedule workflow dialog |
+| 7.19 | `ch07/fig-7-19.png` | **Activity > Scheduled**: `VM report every weekday`, workflow **Build VM report**, next run, state, starting user; schedule panel open with **Edit**, suspend or pause, **Delete** | Java client Scheduler view |
+
+## Chapter 8
+
+| Figure | File | What to capture | Replaces (old cookbook) |
+|---|---|---|---|
+| 8.1 | `ch08/fig-8-1.png` | **Library > Workflows**, tree open at **Library > vCenter > Virtual Machine management > Snapshot**; **Create a snapshot** run form with `vcfguide-test-01` picked and name `before-ch8` | Java client vCenter library tree |
+| 8.2 | `ch08/fig-8-2.png` | Run of action `describeVcenters`, **Logs** tab: one line for `vc01.vmw.lab` with full name and API version; result array with the same line | — |
+| 8.3 | `ch08/fig-8-3.png` | Completed run of **Snapshot a VM**: **Variables** tab, `vm` = `vcfguide-test-01`, output `snapshot`; **Logs** tab *Started snapshot ch8-script …*, *Task … finished*, *Snapshot ch8-script of vcfguide-test-01 is ready* | Java client snapshot workflow run |
+| 8.4 | `ch08/fig-8-4.png` | **Schema** of **Provision a VM from a template**: **cloneFromTemplate**, **Wait for the clone**, **waitForGuestIp**; **Input Form** tab, `template` selected, **Values** = **External source** `com.vcfguide.chapter8/listTemplates` | Clone workflow presentation |
+| 8.5 | `ch08/fig-8-5.png` | Completed run of **Provision a VM from a template**: `vm` = `vcfguide-web-01`, `ipAddress`; log lines *Cloning tpl-linux-01 to vcfguide-web-01 …*, *Clone finished*, *has the IP address*; behind it the vSphere Client **Monitor > Events** of the VM with the customization events | Clone workflow run |
+| 8.6 | `ch08/fig-8-6.png` | Full **Schema** of **Request a VM**: **Check the request**, **Needs approval?**, **Mail the approvers**, **Ask for approval** (red dashed exception arrow to **Tell the requester: expired**), **Approved?** with **Tell the requester: rejected**, workflow element **Provision a VM from a template**, **Tell the requester: ready** | Approval workflow schema |
+| 8.7 | `ch08/fig-8-7.png` | As a member of `OrchestratorApprovers`: **Activity > Waiting for Input**, the **Request a VM** run for `vcfguide-web-03`, answer form with **Approve this request** selected and **Reason** filled; beside it the approval mail with the request table and link | Java client user interaction answer |
+| 8.8 | `ch08/fig-8-8.png` | **Activity > Workflow Runs** filtered on **Request a VM**: four completed runs, `outcome` *Built: vcfguide-web-02 …*, *Built: vcfguide-web-03 …*, *Rejected: Too large for the lab*, *Expired: nobody answered by …* (composite if needed) | — |
+| 8.9 | `ch08/fig-8-9.png` | **Administration > Inventory > HTTP-REST** with `nsx01-rest` selected: URL `https://nsx01.vmw.lab`, **Basic** / **Shared Session**; inset terminal with `curl … /policy/api/v1/infra/tier-1s/vcfguide-t1 \| jq` printing the name and path | NSX plug-in endpoint configuration |
+| 8.10 | `ch08/fig-8-10.png` | Completed run of **Create an NSX segment**, **Logs** tab *Asked NSX for segment vcfguide-seg-01 (10.80.1.1/24) on vcfguide-t1* and *… is realized*, output `segmentPath`; beside it NSX Manager **Networking > Segments** with `vcfguide-seg-01`, gateway `vcfguide-t1`, subnet, status **Success**, tag `vcfguide \| chapter8` | NSX plug-in create logical switch workflow |
+| 8.11 | `ch08/fig-8-11.png` | Run of action `nsxTagVm` for `vcfguide-web-01`, log *… now has the NSX tags …, vcfguide-role\|web*; beside it NSX Manager **Inventory > Groups**, `vcfguide-web` with the tag criterion and **View Members** listing the tagged VMs | — |
+| 8.12 | `ch08/fig-8-12.png` | VM Apps organization, **Infrastructure > Integrations**, integration `vco01` open: external Orchestrator type, URL `https://vco01.vmw.lab`, validated, data collection status and time | vRA 7 vRO endpoint |
+| 8.13 | `ch08/fig-8-13.png` | VM Apps organization, **Extensibility > Subscriptions**, `vcfguide name VMs`: topic **Compute allocation**, condition `event.data.customProperties['vcfguideRole'] != null`, workflow **Name a catalog VM** on `vco01`, **Blocking** on with priority 10 and timeout, project `vcfguide` | vRA 7 Event Broker subscription |
+| 8.14 | `ch08/fig-8-14.png` | VCF Automation **Extensibility > Activity > Event Log**, the deployment's **Compute allocation** event with payload (`resourceNames`, `customProperties.vcfguideRole`); beside it the Orchestrator run of **Name a catalog VM**, **Variables** tab with `inputProperties` expanded and output `resourceNames` = `vcfguide-cat-001` | — |
+| 8.15 | `ch08/fig-8-15.png` | VM Apps organization, **Content & Policies > Content Sources**, `VCF Orchestrator Guide` of type **VCF Operations Orchestrator workflows**, integration `vco01`, 1 item (**Order a VM**); inset **Policies** with content sharing policy `vcfguide catalog` scoped to `vcfguide` | vRA 7 XaaS blueprint and entitlement |
+| 8.16 | `ch08/fig-8-16.png` | Custom form designer for **Order a VM**: **VM name**, **Size** drop-down with both labels, **Reason** text area; **VM name** properties on **Constraints** with the regular expression; external validation `checkVmName`; form enabled | vRA 7 XaaS form designer |
+| 8.17 | `ch08/fig-8-17.png` | As the test user: **Consume > Catalog** with **Order a VM**, filled request form (`vcfguide-cat-web-02`, Medium, reason); deployment `web for the demo` **Successful**; on `vco01` the completed run with the log line naming the user (composite) | vRA 7 catalog request |

@@ -1,0 +1,273 @@
+---
+title: NSX automation
+description: Recipe 8.4 — automate NSX from Orchestrator through the NSX Policy API. Register NSX Manager as a REST host, write one helper for every call, create a segment and wait until it's realized, tag a VM without losing its other tags, and build a group whose members follow the tag.
+sidebar:
+  label: 8.4 NSX automation
+  order: 4
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+Every VCF workload domain has NSX, and most VMs you build sooner or later need something from it: a network to sit on, a tag that puts them in the right security group, a firewall rule. Orchestrator 9.x doesn't ship an NSX plug-in. It doesn't need one. NSX Manager has a complete REST API, the **Policy API**, and the HTTP-REST plug-in from recipe 5.2 is all it takes to call it.
+
+In this recipe you register NSX Manager as a REST host and write a small set of actions on top of it: one helper that every call goes through, one that creates a segment and waits until NSX has actually built it, one that tags a VM, and one that makes a group whose members are all VMs with that tag. Together they cover the pattern of almost every NSX job you'll automate: describe what you want, send it with `PATCH`, and check that NSX realized it.
+
+<Recipe type="ready">
+
+- NSX Manager for the workload domain that holds `vc01.vmw.lab`. In this book it's `nsx01.vmw.lab`.
+- An NSX account for Orchestrator, here `svc-vcfguide-nsx@vsphere.local`, with a role that can create segments and groups and tag VMs. In a lab, the **Network Admin** and **Security Admin** roles together are enough.
+- A Tier-1 gateway connected to your Tier-0, for the new segment to attach to. This recipe uses one with the ID `vcfguide-t1`. Create it in the NSX Manager UI if you don't have one.
+- The HTTP-REST plug-in and REST hosts from recipe 5.2.
+- The VM `vcfguide-web-01` from recipe 8.2, and the action `findVmByName` from recipe 8.1.
+
+<Verify>On VCF 9.1, record how NSX Manager accounts are given to service users (an SSO user from VCF identity, or an NSX local user), and the smallest set of NSX roles that lets <code>svc-vcfguide-nsx</code> create a segment, create a group, and tag a VM. Replace "Network Admin and Security Admin" with what you find.</Verify>
+
+</Recipe>
+
+<Recipe type="how">
+
+**Register NSX Manager**
+
+1. Run **Add a REST host** as in recipe 5.2, with **Name** `nsx01-rest`, **URL** `https://nsx01.vmw.lab`, **Connection timeout** `30`, and **Operation timeout** `60`. Accept the certificate.
+2. On **Host Authentication**, choose **Basic**, then **Shared Session**, and enter `svc-vcfguide-nsx@vsphere.local` and its password. NSX accepts Basic authentication on every call, so there's no login step to script, unlike vCenter in recipe 5.2.
+3. Check it from the shell first, so you know the account and the address are right before Orchestrator is involved:
+
+```bash title="Any machine that can reach NSX Manager"
+curl -sk -u 'svc-vcfguide-nsx@vsphere.local' \
+  https://nsx01.vmw.lab/policy/api/v1/infra/tier-1s/vcfguide-t1 | jq '.display_name, .path'
+```
+
+It prints the gateway's name and its policy path, `/infra/tier-1s/vcfguide-t1`.
+
+<Figure n="8.9" caption="NSX Manager registered as a REST host."
+  capture="<b>Administration > Inventory > HTTP-REST</b> with <code>nsx01-rest</code> selected, showing URL <code>https://nsx01.vmw.lab</code> and <b>Basic</b> / <b>Shared Session</b>; inset: terminal with the <code>curl … /infra/tier-1s/vcfguide-t1 | jq</code> output." />
+
+**One helper for every call**
+
+4. Create the action `nsxCall` in `com.vcfguide.chapter8`, with the inputs `restHost` (`REST:RESTHost`), `method` (`string`), `path` (`string`), and `body` (`Any`), and the return type `Any`:
+
+```javascript title="com.vcfguide.chapter8/nsxCall"
+// Calls the NSX API and returns the parsed JSON body, or null for an empty one.
+// body is an object to send as JSON, or null. Throws on any status above 299.
+var content = (body === null || body === undefined) ? null : JSON.stringify(body);
+var request = restHost.createRequest(method, path, content);
+request.setHeader("Accept", "application/json");
+if (content !== null) {
+    request.contentType = "application/json";
+}
+var response = request.execute();
+var text = response.contentAsString;
+System.debug(method + " " + path + " returned " + response.statusCode);
+
+if (response.statusCode < 200 || response.statusCode > 299) {
+    var detail = text;
+    try {
+        var error = JSON.parse(text);
+        if (error.error_message) {
+            detail = error.error_message + " (error " + error.error_code + ")";
+        }
+    } catch (e) {
+        // not JSON: keep the raw text
+    }
+    throw "NSX " + method + " " + path + " failed with HTTP " + response.statusCode + ": " + detail;
+}
+return text ? JSON.parse(text) : null;
+```
+
+5. Run it with `nsx01-rest`, `GET`, `/policy/api/v1/infra/tier-1s/vcfguide-t1`, and an empty body. The result is the gateway, the same object `curl` printed.
+
+**Create a segment and wait for it**
+
+6. Create the action `nsxWaitForRealization` in `com.vcfguide.chapter8`, with the inputs `restHost` (`REST:RESTHost`), `intentPath` (`string`), and `timeoutSeconds` (`number`), and no return value:
+
+```javascript title="com.vcfguide.chapter8/nsxWaitForRealization"
+// Waits until NSX reports that the object at intentPath is realized.
+var nsx = System.getModule("com.vcfguide.chapter8");
+var path = "/policy/api/v1/infra/realized-state/status?intent_path=" +
+           encodeURIComponent(intentPath);
+var deadline = new Date().getTime() + timeoutSeconds * 1000;
+
+while (true) {
+    var status = nsx.nsxCall(restHost, "GET", path, null);
+    var state = status.consolidated_status ? status.consolidated_status.consolidated_status : "UNKNOWN";
+    if (state === "SUCCESS") {
+        System.log(intentPath + " is realized");
+        return;
+    }
+    if (state === "ERROR" || state === "FAILED") {
+        throw intentPath + " failed to realize: " + JSON.stringify(status);
+    }
+    if (new Date().getTime() > deadline) {
+        throw intentPath + " not realized after " + timeoutSeconds + " seconds (state " + state + ")";
+    }
+    System.sleep(3000);
+}
+```
+
+7. Create the action `nsxCreateSegment` in `com.vcfguide.chapter8`, with the inputs `restHost` (`REST:RESTHost`), `segmentId` (`string`), `tier1Id` (`string`), and `gatewayCidr` (`string`), and the return type `string`. It returns the segment's policy path:
+
+```javascript title="com.vcfguide.chapter8/nsxCreateSegment"
+// Creates or updates an overlay segment on a Tier-1 gateway, then waits for it.
+// gatewayCidr is the gateway address and prefix, for example "10.80.1.1/24".
+var nsx = System.getModule("com.vcfguide.chapter8");
+var segmentPath = "/infra/segments/" + segmentId;
+
+var segment = {
+    display_name: segmentId,
+    connectivity_path: "/infra/tier-1s/" + tier1Id,
+    subnets: [ { gateway_address: gatewayCidr } ],
+    tags: [ { scope: "vcfguide", tag: "chapter8" } ]
+};
+nsx.nsxCall(restHost, "PATCH", "/policy/api/v1" + segmentPath, segment);
+System.log("Asked NSX for segment " + segmentId + " (" + gatewayCidr + ") on " + tier1Id);
+
+nsx.nsxWaitForRealization(restHost, segmentPath, 120);
+return segmentPath;
+```
+
+8. Create the workflow **Create an NSX segment** in **VCF Orchestrator Guide/Chapter 8**. Drag **nsxCreateSegment** onto the schema and promote its inputs, except `restHost`. Make that one a variable, `nsx`, of type `REST:RESTHost`, with the value `nsx01-rest`, so nobody has to pick the host on every run. Promote the result as the output `segmentPath`.
+9. Run it with `segmentId` `vcfguide-seg-01`, `tier1Id` `vcfguide-t1`, and `gatewayCidr` `10.80.1.1/24`. Use a subnet that's free in your lab. The run logs the request, then *… is realized*, and returns `/infra/segments/vcfguide-seg-01`.
+10. Run it again with the same values. It succeeds again and changes nothing. That's what `PATCH` on the Policy API means: here is the object I want, make it so.
+11. In NSX Manager, go to **Networking** > **Segments**. `vcfguide-seg-01` is there, connected to `vcfguide-t1`, with status **Success**. In the vSphere Client it appears as a network you can connect a VM to.
+
+<Figure n="8.10" caption="A segment created from Orchestrator, and NSX's view of it."
+  capture="Completed run of <b>Create an NSX segment</b>, <b>Logs</b> tab: <i>Asked NSX for segment vcfguide-seg-01 (10.80.1.1/24) on vcfguide-t1</i> and <i>/infra/segments/vcfguide-seg-01 is realized</i>; output <code>segmentPath</code>. Beside it, NSX Manager <b>Networking > Segments</b> with <code>vcfguide-seg-01</code>, connected gateway <code>vcfguide-t1</code>, subnet, status <b>Success</b>, tag <code>vcfguide | chapter8</code>." />
+
+<Verify>On NSX in VCF 9.1, confirm that a segment under <code>/infra</code> can be created on <code>vcfguide-t1</code> with only <code>connectivity_path</code> and <code>subnets</code> (the overlay transport zone is filled in when there's only one), the JSON shape of <code>/realized-state/status</code> and its values (<code>SUCCESS</code>, <code>IN_PROGRESS</code>, <code>ERROR</code>, others), and roughly how long realization takes. Note what the vSphere Client shows the segment as.</Verify>
+
+**Tag a VM without losing its other tags**
+
+12. NSX knows a VM by its **external ID**, which is the VM's instance UUID in vCenter. The call that sets tags replaces every tag the VM has with the ones you send, so read the current tags first and add yours to them. Create the action `nsxTagVm` in `com.vcfguide.chapter8`, with the inputs `restHost` (`REST:RESTHost`), `vm` (`VC:VirtualMachine`), `scope` (`string`), and `tag` (`string`), and the return type `Array/string`:
+
+```javascript title="com.vcfguide.chapter8/nsxTagVm"
+// Sets scope|tag on a VM in NSX, keeping its other tags.
+// A tag with the same scope is replaced. Returns the VM's tags as "scope|tag".
+var nsx = System.getModule("com.vcfguide.chapter8");
+var externalId = vm.config.instanceUuid;
+
+var search = nsx.nsxCall(restHost, "GET",
+    "/policy/api/v1/search/query?query=" +
+    encodeURIComponent("resource_type:VirtualMachine AND external_id:" + externalId), null);
+if (!search.results || search.results.length === 0) {
+    throw "nsxTagVm: NSX doesn't know " + vm.name + " (" + externalId + ") yet";
+}
+
+var current = search.results[0].tags || [];
+var tags = [];
+for (var i = 0; i < current.length; i++) {
+    if (current[i].scope !== scope) {
+        tags.push({ scope: current[i].scope, tag: current[i].tag });
+    }
+}
+tags.push({ scope: scope, tag: tag });
+
+nsx.nsxCall(restHost, "POST",
+    "/policy/api/v1/infra/realized-state/virtual-machines/" + externalId + "/tags",
+    { tags: tags });
+
+var result = [];
+for (var j = 0; j < tags.length; j++) {
+    result.push(tags[j].scope + "|" + tags[j].tag);
+}
+System.log(vm.name + " now has the NSX tags " + result.join(", "));
+return result;
+```
+
+13. Run it with `nsx01-rest`, the VM `vcfguide-web-01`, `scope` `vcfguide-role`, and `tag` `web`. The log lists the VM's tags, ending with `vcfguide-role|web`. Run it again with `tag` `app`, and `web` is replaced by `app`, because there's one tag per scope. Run it a third time with `web` to put it back.
+
+<Verify>On NSX in VCF 9.1, confirm that the ID in <code>/infra/realized-state/virtual-machines/&lt;id&gt;/tags</code> is the VM's external ID, that the external ID equals <code>vm.config.instanceUuid</code> from the vCenter plug-in, that the search query by <code>external_id</code> returns the VM with its <code>tags</code>, and that the <code>POST</code> returns <code>204</code>. Also check how soon a VM built in recipe 8.2 is known to NSX after it powers on.</Verify>
+
+**Group VMs by tag**
+
+14. Create the action `nsxEnsureTagGroup` in `com.vcfguide.chapter8`, with the inputs `restHost` (`REST:RESTHost`), `groupId`, `scope`, and `tag` (all `string`), and the return type `Array/string`. It creates or updates a group in the default domain whose members are every VM with that tag, then returns the members' names:
+
+```javascript title="com.vcfguide.chapter8/nsxEnsureTagGroup"
+var nsx = System.getModule("com.vcfguide.chapter8");
+var groupPath = "/infra/domains/default/groups/" + groupId;
+
+nsx.nsxCall(restHost, "PATCH", "/policy/api/v1" + groupPath, {
+    display_name: groupId,
+    description: "VMs tagged " + scope + "|" + tag,
+    expression: [ {
+        resource_type: "Condition",
+        member_type: "VirtualMachine",
+        key: "Tag",
+        operator: "EQUALS",
+        value: scope + "|" + tag
+    } ]
+});
+nsx.nsxWaitForRealization(restHost, groupPath, 60);
+
+var members = nsx.nsxCall(restHost, "GET",
+    "/policy/api/v1" + groupPath + "/members/virtual-machines", null);
+var names = [];
+var list = members.results || [];
+for (var i = 0; i < list.length; i++) {
+    names.push(list[i].display_name);
+}
+System.log("Group " + groupId + " has " + names.length + " VMs: " + names.join(", "));
+return names;
+```
+
+15. Run it with `nsx01-rest`, `groupId` `vcfguide-web`, `scope` `vcfguide-role`, and `tag` `web`. The log lists `vcfguide-web-01`. In NSX Manager, **Inventory** > **Groups** shows `vcfguide-web`. Click **View Members** to see the same VM.
+16. Tag a second VM with `vcfguide-role|web` and run step 15 again. Both VMs are members now, and you didn't touch the group's definition. Membership follows the tag.
+
+<Figure n="8.11" caption="A VM tagged from Orchestrator, and the group it lands in."
+  capture="Run of action <code>nsxTagVm</code> for <code>vcfguide-web-01</code>, <b>Logs</b> tab: <i>vcfguide-web-01 now has the NSX tags …, vcfguide-role|web</i>. Beside it, NSX Manager <b>Inventory > Groups</b>, <code>vcfguide-web</code> with the criterion <i>Virtual Machine Tag Equals web Scope vcfguide-role</i>, <b>View Members</b> open listing the tagged VMs." />
+
+**Clean up**
+
+17. When you're done, delete the segment with `nsxCall` and `DELETE` on `/policy/api/v1/infra/segments/vcfguide-seg-01`. NSX refuses while a VM is still connected to it. Keep the group and the tag: recipe 8.5 uses them.
+
+</Recipe>
+
+<Recipe type="works">
+
+**Intent, then realization.** The Policy API is declarative. A `PATCH` stores what you want, the **intent**, and returns at once, usually with `200`. NSX then builds it on the edges and hosts in the background, which is **realization**. A `200` means NSX accepted the request, not that the network works yet, so a workflow that connects a VM straight after creating a segment can race ahead of NSX. `nsxWaitForRealization` asks the realized-state API about one intent path until NSX says it's done, failed, or the deadline passes, the same idea as `waitForTask` in recipe 8.1 for vCenter.
+
+**IDs you choose.** On the Policy API, the client picks the ID and puts it in the path: `/infra/segments/vcfguide-seg-01`. That's what makes `PATCH` safe to repeat. A workflow that fails after creating the segment can be run again without making a second one, and you never have to search for the object you just created.
+
+**Paths link objects.** Objects refer to each other by policy path, not by name or UUID. The segment names its gateway with `connectivity_path`, and the realization check takes `intent_path`. Paths are readable and predictable, so you can build them in a script without looking anything up.
+
+**Tags are the glue.** Groups with tag criteria are how NSX lets security follow workloads. The workflow that builds a VM only has to set the right tag. Which group the VM joins, and which firewall rules apply to it, is decided in NSX, by whoever owns security. The tag call replaces all tags on the VM, which is why `nsxTagVm` reads them first. Without that, tagging a VM for one purpose would silently remove tags another team set for another.
+
+**One helper, one error message.** Every call goes through `nsxCall`, so every failure reads the same way, with NSX's own `error_message`, and every call is in the debug log. The HTTP-REST plug-in doesn't fail on a `400` or a `500` by itself, as recipe 5.2 explains, and NSX's error body is usually the fastest way to the cause.
+
+<ThenNow
+  then="Install the NSX for vSphere or NSX-T plug-in, configure an NSX endpoint in it, and use its inventory objects and library workflows."
+  now="No NSX plug-in in the list of plug-ins installed with Orchestrator. Call the NSX Policy API through the HTTP-REST plug-in, with a few actions of your own." />
+
+<Verify>Check whether Broadcom publishes an NSX plug-in for Orchestrator 9.x outside the default set (on the Broadcom support portal or developer site). If one exists, mention it here with its supported versions.</Verify>
+
+</Recipe>
+
+<Recipe type="more">
+
+**VPCs in VCF 9.** VCF 9 adds NSX **VPCs**: self-contained networks inside an NSX project, which VCF Automation and the vSphere Client use for self-service. The same Policy API covers them, under a longer path, for example `/policy/api/v1/orgs/default/projects/<project>/vpcs/<vpc>/subnets/<subnet>`. The tag call also has a project form, `/policy/api/v1/orgs/<org>/projects/<project>/infra/realized-state/virtual-machines/<id>/tags`. If your workloads live in VPCs, keep `nsxCall` as it is and change only the paths.
+
+<Verify>On VCF 9.1, check the path of a VPC subnet in the lab, which fields a subnet needs when created through the API, and whether VCF Automation-managed VPCs should be changed from Orchestrator at all.</Verify>
+
+**Firewall rules.** A distributed firewall policy is one more `PATCH`, to `/policy/api/v1/infra/domains/default/security-policies/<id>`, with rules that name groups by path in `source_groups` and `destination_groups`. Because the group follows the tag, the workflow that builds a VM never has to touch a rule.
+
+**See the API from the UI.** NSX Manager's UI is built on the same API. To find the body for something, create it once in the UI, then `GET` it with `curl` or `nsxCall` and copy the fields you need. Leave out read-only ones such as `_revision`, `_create_time`, and `realization_id`.
+
+**Concurrent edits.** If two runs change the same object, the second write wins. For whole-object updates, NSX supports a revision check: send back the `_revision` you read, and NSX rejects the write with `412` if someone changed the object in between. Read again and retry. For many runs that change the same group or policy, a lock (recipe 7.5) is simpler.
+
+**Rate limits.** NSX Manager limits how many API calls each client can make per second and at once, and answers `429` above that. Workflows that loop over hundreds of VMs should pace themselves, for example with a short `System.sleep` between calls, rather than retrying as fast as they can.
+
+**Connect the VM to the segment.** Changing a VM's network is a vCenter job, not an NSX one. Use the vCenter plug-in's library workflows for network adapters, or a reconfigure spec as in recipe 8.2, and pick the segment as the network.
+
+</Recipe>
+
+<Recipe type="see">
+
+- [5.2 REST hosts and operations](../../../chapter-5/recipes/02-rest-hosts/), for REST hosts, `createRequest`, and status codes.
+- [7.5 Locks](../../../chapter-7/recipes/05-locks/), for runs that change the same NSX object.
+- [8.1 Workflows against vCenter](../01-vcenter-workflows/), for `findVmByName` and the polling pattern.
+- [8.5 Extensibility subscriptions](../05-extensibility-subscriptions/), which tags every VM VCF Automation builds with `nsxTagVm`.
+- Broadcom TechDocs (VCF 9.0): [Plug-ins installed with the VCF Operations orchestrator server](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/vcf-ochestrator-plugins-overview/manage-the-orchestrator-plug-ins/default-orchestrator-plug-ins-new.html).
+- Broadcom developer portal, NSX REST API: [Create or update a segment (9.1.0)](https://developer.broadcom.com/xapis/nsx-t-data-center-rest-api/9.1.0/method_PatchInfraSegmentWithForce.html), [Virtual machine inventory methods (9.1.0)](https://developer.broadcom.com/xapis/nsx-t-data-center-rest-api/9.1.0/inventory_vm.html), [Apply tags on a virtual machine](https://developer.broadcom.com/xapis/nsx-t-data-center-rest-api/4.2/method_ApplyTagOnVirtualMachine.html), [List virtual machines (9.0.0)](https://developer.broadcom.com/xapis/nsx-t-data-center-rest-api/9.0.0/method_ListAllVirtualMachines.html), [Condition, for group expressions (9.0.0)](https://developer.broadcom.com/xapis/nsx-t-data-center-rest-api/9.0.0/types_Condition.html), and [Read the realization status of an intent](https://vdc-download.vmware.com/vmwb-repository/dcr-public/9e1c6bcc-85db-46b6-bc38-d6d2431e7c17/30af91b5-3a91-4d5d-8ed5-a7d806764a16/api_includes/method_ReadIntentStatus.html).
+
+</Recipe>

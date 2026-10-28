@@ -1,0 +1,267 @@
+---
+title: Starting workflows from scripts
+description: Recipe 7.2 — start an Orchestrator workflow from outside Orchestrator, pass it inputs, wait for it, and read its outputs and logs. Once with curl, once with PowerShell, and with a table of the JSON each input type needs.
+sidebar:
+  label: 7.2 Starting workflows from scripts
+  order: 2
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+Recipe 3.8 started workflows from inside Orchestrator, with `Workflow.execute` and a token to wait on. This recipe starts them from outside: from a shell script, a scheduled job on another server, a CI pipeline, or a PowerShell session on an administrator's laptop. The tool calling Orchestrator doesn't need a plug-in or a library, only HTTPS and the four calls you'll make here: start a run, check its state, read its outputs, and read its logs.
+
+The example is **List VMs by name** from recipe 3.2. It takes one string and returns an array of strings, which makes it a good first case. How it works covers the other input types, including vCenter objects.
+
+<Recipe type="ready">
+
+- `vro-env.sh` and the service account `svc-vcfguide@vsphere.local` from recipe 7.1, and the ID of **List VMs by name** in `WF_ID`.
+- For part D, PowerShell 7 on any platform, and the lab's CA certificate trusted by the operating system.
+
+</Recipe>
+
+<Recipe type="how">
+
+**A. Start a run**
+
+1. Load the helper and write the run's inputs as JSON. Each input has a name, a type, and a value wrapped in an object named after its type:
+
+```bash
+. vro-env.sh
+cat > run-input.json <<'EOF'
+{
+  "parameters": [
+    {
+      "name": "namePattern",
+      "type": "string",
+      "scope": "local",
+      "value": { "string": { "value": "^vc" } }
+    }
+  ]
+}
+EOF
+```
+
+2. Start the run. The server answers `202 Accepted` with no body, and a `Location` header that points at the new run. `--dump-header` writes the headers to a file so you can read it:
+
+```bash
+vro POST "/workflows/$WF_ID/executions" \
+  -H "Content-Type: application/json" \
+  --data @run-input.json \
+  --dump-header run-headers.txt
+grep -i '^location:' run-headers.txt
+```
+
+3. Take the run's ID from the end of that address:
+
+```bash
+RUN_ID="$(grep -i '^location:' run-headers.txt | tr -d '\r' | sed 's#/*$##; s#.*/##')"
+echo "$RUN_ID"
+```
+
+<Verify>Run steps 2 and 3 on 9.1.1 and record the status code, and the exact <code>Location</code> header (in 8.x, <code>https://…/vco/api/workflows/&#123;workflowId&#125;/executions/&#123;executionId&#125;/</code>, with a trailing slash). Check whether a <code>200</code> with the run in the body is ever returned instead, as the 8.x reference also lists.</Verify>
+
+**B. Wait for it, and read the result**
+
+4. Ask for the run's state until it's finished. The state call returns a small object such as `{"value":"running"}`:
+
+```bash
+for i in $(seq 1 60); do
+  STATE="$(vro GET "/workflows/$WF_ID/executions/$RUN_ID/state" | jq -r .value)"
+  echo "$(date +%T) $STATE"
+  case "$STATE" in completed|failed|canceled) break ;; esac
+  sleep 5
+done
+```
+
+5. Read the run. Its `output-parameters` hold `vmNames`, an array of strings, wrapped the same way as the input:
+
+```bash
+vro GET "/workflows/$WF_ID/executions/$RUN_ID" \
+  | jq -r '.state, (."output-parameters"[]
+      | select(.name == "vmNames")
+      | .value.array.elements[]?.string.value)'
+```
+
+The first line is `completed`. Every line after it is one VM, with its power state, as the workflow logged it in recipe 3.2.
+
+6. Read the run's log, the same lines the client shows on the **Logs** tab:
+
+```bash
+vro GET "/workflows/$WF_ID/executions/$RUN_ID/syslogs" \
+  | jq -r '.logs[]?.entry | "\(."time-stamp") \(.severity) \(."short-description")"'
+```
+
+<Figure n="7.4" caption="A workflow started, watched, and read from the shell."
+  capture="Terminal: the <code>POST …/executions</code> call and the <code>Location</code> line, three or four state lines ending in <code>completed</code>, the <code>vmNames</code> values, and the log lines from <code>/syslogs</code>." />
+
+<Verify>Record the 9.1.1 JSON of a finished run (the names <code>state</code> and <code>output-parameters</code>, and the shape of an <code>Array/string</code> value), and of <code>/syslogs</code> (8.x wraps each line in <code>entry</code> with <code>time-stamp</code>, <code>severity</code>, and <code>short-description</code>). Adjust the <code>jq</code> filters in steps 5 and 6 to match. Recipe 4.6 has the same open question about where logs appear.</Verify>
+
+7. In the Orchestrator Client, go to **Activity** > **Workflow Runs**. The run is there like any other, with `svc-vcfguide@vsphere.local` as the user who started it, and the same **Variables** and **Logs** tabs.
+
+<Figure n="7.5" caption="A run started through the API, in the client."
+  capture="<b>Activity > Workflow Runs</b>, filtered on <b>List VMs by name</b>: the run started from the shell at the top, <b>Started by</b> = <code>svc-vcfguide@vsphere.local</code>, state <b>Completed</b>, <b>Variables</b> tab with <code>namePattern</code> = <code>^vc</code> and <code>vmNames</code>." />
+
+**C. Make it a script you can reuse**
+
+8. Save the steps above as `run-workflow.sh`. It takes a workflow ID and any number of string inputs as `name=value`, starts the run, waits up to ten minutes, prints the outputs, and exits non-zero if the run didn't complete, so a pipeline or a scheduler can tell:
+
+```bash title="run-workflow.sh"
+#!/usr/bin/env bash
+# Starts an Orchestrator workflow with string inputs and waits for it.
+# Usage: bash run-workflow.sh <workflowId> name=value ...
+# Asks for a password once, unless VRO_TOKEN is set (recipe 7.1).
+set -euo pipefail
+. ./vro-env.sh
+
+WF_ID="$1"; shift
+TIMEOUT=600; INTERVAL=5
+
+# Build the parameters array from name=value pairs
+PARAMS='[]'
+for pair in "$@"; do
+  PARAMS="$(jq --arg n "${pair%%=*}" --arg v "${pair#*=}" \
+    '. + [{name: $n, type: "string", scope: "local", value: {string: {value: $v}}}]' \
+    <<< "$PARAMS")"
+done
+
+HEADERS="$(mktemp)"
+vro POST "/workflows/$WF_ID/executions" \
+  -H "Content-Type: application/json" \
+  --data "$(jq -n --argjson p "$PARAMS" '{parameters: $p}')" \
+  --dump-header "$HEADERS" > /dev/null
+RUN_ID="$(grep -i '^location:' "$HEADERS" | tr -d '\r' | sed 's#/*$##; s#.*/##')"
+rm -f "$HEADERS"
+echo "Started run $RUN_ID"
+
+STATE=running; WAITED=0
+while [ "$WAITED" -lt "$TIMEOUT" ]; do
+  STATE="$(vro GET "/workflows/$WF_ID/executions/$RUN_ID/state" | jq -r .value)"
+  case "$STATE" in completed|failed|canceled) break ;; esac
+  sleep "$INTERVAL"; WAITED=$((WAITED + INTERVAL))
+done
+echo "State: $STATE"
+
+vro GET "/workflows/$WF_ID/executions/$RUN_ID" | jq '."output-parameters"'
+[ "$STATE" = "completed" ]
+```
+
+9. Run it, with the password asked once by `vro-env.sh`:
+
+```bash
+bash run-workflow.sh "$WF_ID" namePattern='^vc'
+echo "exit code $?"
+```
+
+**D. The same from PowerShell**
+
+10. Save this as `Start-VcfGuideWorkflow.ps1`. It does what `run-workflow.sh` does, with PowerShell 7's `Invoke-RestMethod`:
+
+```powershell title="Start-VcfGuideWorkflow.ps1"
+param(
+    [string]$Server = 'vco01.vmw.lab',
+    [Parameter(Mandatory)] [string]$WorkflowId,
+    [hashtable]$Inputs = @{},
+    [int]$TimeoutSeconds = 600
+)
+$cred = Get-Credential -Message "Orchestrator user for $Server"
+$api  = "https://$Server/vco/api"
+$common = @{ Authentication = 'Basic'; Credential = $cred; Headers = @{ Accept = 'application/json' } }
+
+$parameters = foreach ($name in $Inputs.Keys) {
+    @{ name = $name; type = 'string'; scope = 'local'
+       value = @{ string = @{ value = [string]$Inputs[$name] } } }
+}
+$body = @{ parameters = @($parameters) } | ConvertTo-Json -Depth 6
+
+Invoke-RestMethod @common -Method Post -Uri "$api/workflows/$WorkflowId/executions" `
+    -ContentType 'application/json' -Body $body -ResponseHeadersVariable headers | Out-Null
+$runUri = ([string]$headers['Location']).TrimEnd('/')
+Write-Host "Started $runUri"
+
+$deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+do {
+    Start-Sleep -Seconds 5
+    $state = (Invoke-RestMethod @common -Uri "$runUri/state").value
+    Write-Host "$(Get-Date -Format T) $state"
+} until ($state -in 'completed', 'failed', 'canceled' -or (Get-Date) -gt $deadline)
+
+$run = Invoke-RestMethod @common -Uri "$runUri/"
+$run.'output-parameters'
+```
+
+11. Run it:
+
+```powershell
+./Start-VcfGuideWorkflow.ps1 -WorkflowId $wfId -Inputs @{ namePattern = '^vc' }
+```
+
+<Figure n="7.6" caption="The same run from PowerShell."
+  capture="PowerShell 7 window: <code>./Start-VcfGuideWorkflow.ps1 -WorkflowId … -Inputs @&#123; namePattern = '^vc' &#125;</code>, the credential prompt answered, <i>Started https://vco01.vmw.lab/vco/api/workflows/…/executions/…</i>, state lines, and the <code>output-parameters</code> object with <code>vmNames</code>." />
+
+<Verify>Run the PowerShell script on 9.1.1 from Windows and from Linux. Check that <code>-Authentication Basic</code> with <code>-Credential</code> works against <code>https://</code> without <code>-AllowUnencryptedAuthentication</code>, and that <code>$headers['Location']</code> holds the run's address.</Verify>
+
+</Recipe>
+
+<Recipe type="works">
+
+**Starting a run is asynchronous.** `POST …/executions` doesn't wait for the workflow. The server checks the inputs, creates a workflow token, queues it, and answers `202` at once, with the token's address in the `Location` header. The ID at the end of that address is the run's ID, the same one the client shows. From then on the run belongs to the server: if your script dies, the workflow carries on. That's why the scripts poll. The state call is small and cheap. Ask every few seconds, not in a tight loop, and stop after a timeout you chose.
+
+A run's state is one of `running`, `waiting`, `waiting-signal`, `completed`, `failed`, or `canceled`, as in recipe 3.8. `waiting` means the workflow is at a user interaction (recipe 3.9) or a waiting timer (recipe 3.7). A script that only waits for the last three treats those as still running, which is right for most uses. If a workflow waits for a person, don't wait for it from a pipeline: start it, record its ID, and check on it later.
+
+**The body is the client's run form, as JSON.** The `parameters` array is everything the run form collects. Each entry needs the input's `name` and `type`, exactly as they appear in the workflow's `input-parameters` (recipe 7.1, step 7), and its `value`, wrapped in an object whose key names the type. Inputs you leave out get their default value, if the workflow has one, or none. The common types look like this:
+
+| Workflow type | `value` |
+|---|---|
+| `string` | `{"string": {"value": "^vc"}}` |
+| `number` | `{"number": {"value": 10}}` |
+| `boolean` | `{"boolean": {"value": true}}` |
+| `Date` | `{"date": {"value": "2026-10-23T09:00:00.000+00:00"}}` |
+| `SecureString` | `{"secure-string": {"value": "…"}}` |
+| `Array/string` | `{"array": {"elements": [{"string": {"value": "a"}}, {"string": {"value": "b"}}]}}` |
+| `Properties` | `{"properties": {"property": [{"key": "k", "value": {"string": {"value": "v"}}}]}}` |
+| `VC:VirtualMachine` and other plug-in types | `{"sdk-object": {"type": "VC:VirtualMachine", "id": "vc01.vmw.lab/vm-42"}}` |
+
+A plug-in object is passed by reference: its type, and the ID the plug-in gives it. For the vSphere plug-in, that's the vCenter's name and the object's managed object reference, joined by a slash. You'll find an object's ID in the client, on the **Variables** tab of a run that used it, or by reading a run with `GET …/executions/{id}`, which shows inputs in the same format.
+
+<Verify>Start a test workflow on 9.1.1 with one input of each type in the table, and record which forms the server accepts. The <code>string</code> and <code>sdk-object</code> forms are confirmed by community examples against 8.x; the others follow the same pattern and are unchecked. In particular, check the <code>Date</code> format and whether <code>SecureString</code> is sent as <code>secure-string</code>.</Verify>
+
+**The run runs as the caller.** The workflow token records the authenticated user as the one who started it, and the workflow acts with that user's rights: in Orchestrator, and in vCenter too if the vCenter connection uses a session per user (recipe 1.9). That's the main reason to give scripts their own account. **Activity** > **Workflow Runs** then tells you at a glance which runs came from automation and which from people.
+
+<ThenNow
+  then="Start workflows from outside through the vRO REST API, or the older SOAP web service. PowerShell users often reached for the community PowervRO module."
+  now="The same <code>POST /vco/api/workflows/&#123;id&#125;/executions</code> call still starts a run. On the embedded Orchestrator it takes a VCF Automation bearer token, and VCF Automation 9.1 adds its own gateway API, <code>POST /vro/runs</code>." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**Accounts with less than administrator rights.** With vSphere authentication, the only Orchestrator role is administrator, so `svc-vcfguide` can do anything an administrator can. If a script should only be able to run a few workflows, authenticate that Orchestrator against VCF Automation (recipe 1.5) instead, where roles and groups exist, and give the script's account a role that can run workflows, with permissions on just the **VCF Orchestrator Guide/Chapter 7** folder.
+
+<Verify>On a standalone appliance with VCF Automation authentication, check which of the roles in recipe 1.3 (<b>Orchestrator Viewer</b>, <b>Orchestrator Workflow Designer</b>, or a custom role) is the least that can start a workflow through the API, and how folder permissions limit which workflows it can start.</Verify>
+
+**Pick a run ID yourself.** The request body can carry an `executionId`. If your pipeline sets it, for example to the pipeline's own job ID, a retried request can't start the same work twice, and the run is easy to find later.
+
+<Verify>Check on 9.1.1 whether <code>executionId</code> in the request body is honoured, what format it must have, and what the server answers when the same ID is used twice.</Verify>
+
+**Cancel a run.** `DELETE /vco/api/workflows/{workflowId}/executions/{executionId}/state` cancels a running workflow, as **Cancel** does in the client. Use it when the script's own timeout runs out, so a stuck run doesn't hold resources for hours.
+
+<Verify>Confirm the cancel call on 9.1.1, and whether <code>DELETE …/executions/&#123;id&#125;</code> (without <code>/state</code>) deletes the run's record instead.</Verify>
+
+**Start by name in a pipeline.** A workflow's ID never changes, even when it moves between folders or servers by package or Git (recipe 6.4). Its name can. Pipelines should keep the ID. A script that people run by hand can look the ID up by name first (recipe 7.1, step 6), but should stop if it finds more than one match.
+
+**From inside Orchestrator.** One workflow starting another on the same server doesn't need the API. Use `Workflow.execute` or an asynchronous workflow element (recipe 3.8). To start a workflow on a different Orchestrator, a **nested workflows** element can target a remote server, or an action can call that server's API with the HTTP-REST plug-in (recipe 5.2), exactly as `run-workflow.sh` does.
+
+</Recipe>
+
+<Recipe type="see">
+
+- [3.8 Asynchronous and nested workflows](../../../chapter-3/recipes/08-async-and-nested/), for starting workflows from Orchestrator scripts, and run states.
+- [7.1 The Orchestrator REST API](../01-rest-api/), for `vro-env.sh`, tokens, and finding a workflow's ID.
+- [7.3 Policies and event triggers](../03-policies/), for runs that Orchestrator starts on its own.
+- Broadcom developer documentation: [Start Workflow Execution](https://developer.broadcom.com/xapis/vrealize-orchestrator-api/8.x/vco/api/workflows/workflowId/executions/post) (8.x reference, still the shape of the 9.1 call), the VCF Operations Orchestrator API 9.1 [reference](https://developer.broadcom.com/xapis/vcf-operations-orchestrator-api/9.1), and the gateway's [Run Workflow](https://developer.broadcom.com/xapis/vm-apps-org-orchestrator-gateway/9.1/vro/runs/post/).
+- William Lam: [Using vRO REST API to execute a workflow with SDK objects](https://www.williamlam.com/2020/03/using-vro-rest-api-to-execute-a-workflow-with-sdk-objects.html), for the `sdk-object` format.
+- Microsoft Learn: [Invoke-RestMethod](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.utility/invoke-restmethod).
+
+</Recipe>

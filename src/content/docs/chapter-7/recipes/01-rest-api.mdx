@@ -1,0 +1,215 @@
+---
+title: The Orchestrator REST API
+description: Recipe 7.1 — find your way around the Orchestrator REST API. Open its reference, authenticate to a standalone appliance and to the Orchestrator embedded in VCF Automation, find a workflow by name, read its inputs, and list its runs.
+sidebar:
+  label: 7.1 The REST API
+  order: 1
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+The Orchestrator Client is a web page that calls a REST API, and that API is open to you too. Everything the client does, from listing workflows to importing a package, is a call under `/vco/api` that a script, a pipeline, or another product can make. Recipes 6.4 and 6.5 already used it to move packages. This recipe steps back and shows how to find your way around it: where its reference lives, how to log in to each kind of Orchestrator, and how to read the objects you'll want to act on in recipe 7.2.
+
+<Recipe type="ready">
+
+- `vco01.vmw.lab` with vSphere authentication (recipe 1.4).
+- A vSphere SSO user for scripts, `svc-vcfguide@vsphere.local`, made a member of `OrchestratorAdmins`. A named account for scripts keeps their runs apart from yours in the logs. With vSphere authentication the only Orchestrator role is administrator (recipe 1.3); recipe 7.2, There's more, covers accounts with less.
+- The workflow **List VMs by name** in **VCF Orchestrator Guide/Chapter 3**, with one input `namePattern` (`string`) and one output `vmNames` (`Array/string`), from recipe 3.2. Run it once in the client, so it has a run to find.
+- A Linux or macOS shell with `curl` and `jq`, and the lab's CA certificate saved as `vmw-lab-ca.pem`.
+- For part C, an account in the Provider Consumption organization of VCF Automation that can open its **Orchestrate** tab (recipe 1.1).
+
+</Recipe>
+
+<Recipe type="how">
+
+**A. Open the reference**
+
+1. Browse to `https://vco01.vmw.lab/vco/api/docs`. The API's reference opens as a Swagger UI page, grouped into services such as **Workflow Service**, **Workflow Run Service**, **Packages Service**, and **Policy Service**.
+2. Click **Authorize**, enter `svc-vcfguide@vsphere.local` and its password under basic authentication, and close the dialog.
+3. Expand **Workflow Service**, open `GET /workflows`, and click **Try it out**, then **Execute**. Below the button, the page shows the `curl` command it sent, the response code `200`, and a JSON list of workflows.
+
+<Figure n="7.1" caption="The REST API reference, served by the Orchestrator itself."
+  capture="Browser at <code>https://vco01.vmw.lab/vco/api/docs</code>: the Swagger UI page with <b>Workflow Service</b> expanded, <code>GET /workflows</code> opened after <b>Execute</b>, showing the generated <code>curl</code> command, response code <code>200</code>, and the start of the JSON body. Blur the <code>Authorization</code> header." />
+
+<Verify>Confirm the reference's address on 9.1.1. A community thread reaches it at <code>/vco/api/docs/swagger-ui/index.html</code> on VCF Automation; check whether <code>/vco/api/docs</code> redirects there on a standalone appliance, and which authentication methods the <b>Authorize</b> dialog offers.</Verify>
+
+**B. Call it from a script**
+
+4. Save this file as `vro-env.sh`. It asks once for a user name and password, and defines a small `vro` function that adds the address, the CA certificate, the credentials, and the JSON header to every call:
+
+```bash title="vro-env.sh"
+# Source this file: . vro-env.sh
+# Sets up the vro function for one Orchestrator.
+VRO="${VRO:-https://vco01.vmw.lab/vco/api}"
+CACERT="${CACERT:-vmw-lab-ca.pem}"
+
+if [ -z "${VRO_TOKEN:-}" ]; then
+  read -r -p "User for $VRO: " VRO_USER
+  read -r -s -p "Password: " VRO_PASS; echo
+fi
+
+# Usage: vro METHOD PATH [extra curl options]
+vro() {
+  local method="$1" path="$2"; shift 2
+  local auth
+  if [ -n "${VRO_TOKEN:-}" ]; then
+    auth=(-H "Authorization: Bearer $VRO_TOKEN")
+  else
+    auth=(-u "$VRO_USER:$VRO_PASS")
+  fi
+  curl --fail-with-body --silent --show-error --cacert "$CACERT" \
+    "${auth[@]}" -H "Accept: application/json" \
+    -X "$method" "$@" "$VRO$path"
+}
+```
+
+5. Load it and check who you are:
+
+```bash
+. vro-env.sh
+vro GET /about | jq .
+vro GET /users | jq .
+```
+
+`/about` answers anyone. It gives the version and build of the server, as in recipe 1.1. `/users` needs a login, and describes the user you logged in as, so it's a quick test of your credentials. A wrong password gives `401`.
+
+<Verify>Record the 9.1.1 response of <code>GET /vco/api/users</code> for <code>svc-vcfguide@vsphere.local</code> (in 8.x it shows the user's name and whether they're an administrator), and check that <code>--fail-with-body</code> prints the JSON error of a <code>401</code>.</Verify>
+
+6. Find the workflow by name. List calls take a `conditions` query parameter, and the answer is a list of links, each carrying the object's attributes as name and value pairs:
+
+```bash
+vro GET '/workflows?conditions=name=List%20VMs%20by%20name' \
+  | jq -r '.link[] | [(.attributes[] | select(.name == "id") | .value),
+                      (.attributes[] | select(.name == "categoryName") | .value)] | @tsv'
+```
+
+The output is one line: the workflow's ID and its folder, `Chapter 3`. Copy the ID into a variable:
+
+```bash
+WF_ID='paste-the-id-here'
+```
+
+<Figure n="7.2" caption="Finding a workflow by name from the shell."
+  capture="Terminal: <code>. vro-env.sh</code> with the user prompt, <code>vro GET /about | jq .</code> showing version 9.1.1, then the <code>/workflows?conditions=name=…</code> call printing the ID of <b>List VMs by name</b> and <code>Chapter 3</code>." />
+
+<Verify>Check on 9.1.1 that <code>conditions=name=…</code> matches the exact name, that <code>conditions=name~List</code> matches part of a name as it did in 8.x, and that each link's <code>attributes</code> list includes <code>id</code>, <code>name</code>, and <code>categoryName</code>.</Verify>
+
+7. Read the workflow's inputs and outputs. These are what a script must send when it starts the workflow (recipe 7.2):
+
+```bash
+vro GET "/workflows/$WF_ID" \
+  | jq '{name, version, inputs: ."input-parameters", outputs: ."output-parameters"}'
+```
+
+```json title="GET /workflows/{id} (shortened)"
+{
+  "name": "List VMs by name",
+  "version": "…",
+  "inputs":  [ { "name": "namePattern", "type": "string" } ],
+  "outputs": [ { "name": "vmNames", "type": "Array/string" } ]
+}
+```
+
+8. List the workflow's runs, newest first, with their state:
+
+```bash
+vro GET "/workflows/$WF_ID/executions?maxResult=5" \
+  | jq -r '.relations.link[]? // .link[]?
+           | [(.attributes[]? | select(.name == "id") | .value),
+              (.attributes[]? | select(.name == "state") | .value),
+              (.attributes[]? | select(.name == "startDate") | .value)] | @tsv'
+```
+
+The run you started in the client is there, `completed`, with its ID and start time.
+
+<Verify>Run step 8 on 9.1.1 and record the shape of the executions list (whether the links are under <code>relations.link</code> or <code>link</code>), the attribute names for state and start date, whether <code>maxResult</code> is honoured, and the sort order. Simplify the <code>jq</code> filter to match.</Verify>
+
+**C. The Orchestrator embedded in VCF Automation**
+
+The embedded Orchestrator doesn't take a user name and password on its API. It takes a bearer token issued by VCF Automation for your organization. You get one in two steps: create a long-lived **API token** once, then exchange it for a short-lived access token whenever a script runs.
+
+9. Log in to the Provider Consumption organization portal at `https://auto.vmw.lab`, open the user menu at the top right, and choose **My Account**. On **API Tokens**, click **New**, give the token a name such as `vcfguide-scripts`, and create it. Copy the token: it's shown only once.
+
+<Figure n="7.3" caption="An API token for scripts, created in the organization portal."
+  capture="VCF Automation 9.1, Provider Consumption organization portal, user menu > <b>My Account</b> > <b>API Tokens</b>, the new token <code>vcfguide-scripts</code> just created, with the copy button and the warning that it won't be shown again (blur the token)." />
+
+10. Exchange it for an access token. Replace `<org>` with the organization's name as it appears in the portal's address:
+
+```bash
+API_TOKEN='paste-the-api-token-here'
+export VRO_TOKEN="$(curl --fail --silent --show-error --cacert vmw-lab-ca.pem \
+  -H 'Accept: application/json' \
+  --data-urlencode 'grant_type=refresh_token' \
+  --data-urlencode "refresh_token=$API_TOKEN" \
+  'https://auto.vmw.lab/oauth/tenant/<org>/token' | jq -r .access_token)"
+```
+
+11. Point the helper at the embedded Orchestrator and repeat steps 5 to 8. Because `VRO_TOKEN` is set, `vro-env.sh` doesn't ask for a password, and sends the token instead:
+
+```bash
+export VRO='https://auto.vmw.lab/vco/api'
+. vro-env.sh
+vro GET /users | jq .
+```
+
+<Verify>Walk part C on VCF Automation 9.1 with the Provider Consumption organization and record: where a user of that organization creates an API token (the menu names in step 9 come from the provider portal's documented procedure); the organization name to use in <code>/oauth/tenant/&lt;org&gt;/token</code>; whether the access token from that call is accepted by <code>/vco/api</code> on <code>auto.vmw.lab</code> as a bearer token; and how long it lasts. Community write-ups give one hour for the access token and 90 days by default for the API token.</Verify>
+
+</Recipe>
+
+<Recipe type="works">
+
+**One API, two front doors.** Every Orchestrator, standalone or embedded, serves the same API under `/vco/api`, and the client you click in uses it too. What differs is how you prove who you are, and that follows the authentication provider the server uses (recipe 1.3):
+
+| Orchestrator | Authentication provider | What the API accepts |
+|---|---|---|
+| Standalone, `vco01.vmw.lab` | vSphere (recipe 1.4) | Basic authentication with an SSO user |
+| Standalone | VCF Automation (recipe 1.5) | A bearer token from VCF Automation |
+| Embedded, `auto.vmw.lab` | VCF Automation, always | A bearer token from VCF Automation |
+
+On a standalone appliance with vSphere authentication, Basic authentication always works. Broadcom KB 440608 notes that the system property `com.vmware.o11n.sso.basic-authentication.enabled` only applies to Orchestrators integrated with VCF Automation, and that there's no supported way to turn Basic authentication off on a vSphere-authenticated appliance. Protect the service account's password like any other administrator password, and use HTTPS with a proper CA certificate, as `vro-env.sh` does with `--cacert`.
+
+<Verify>Recipe 1.6 sets up VCF SSO authentication on a standalone appliance. Check which credentials the 9.1.1 API accepts in that mode: Basic authentication, a VCF SSO bearer token, or both.</Verify>
+
+**The API is the client's permissions, not more.** A call runs as the user it authenticates. It can see, run, and change only what that user can in the client, by the same roles and the same folder permissions. A script never needs a special API account, only a suitable ordinary one.
+
+**Resources and links.** The API is organized around resources: `/workflows/{id}` is a workflow, `/workflows/{id}/executions/{executionId}` is one of its runs, `/packages/{name}` a package. List calls return links to those resources rather than the resources themselves, each with a few attributes such as the ID and name, so that a long list stays small. Follow a link's `href`, or build the path from its ID, to get the full object. `conditions` filters a list on the server, which is faster and safer than downloading every workflow and filtering in `jq`.
+
+**JSON or XML.** The API can answer in XML or JSON. Ask for JSON with `Accept: application/json` on every call, as the helper does, rather than relying on a default.
+
+**Tokens expire, API tokens don't, for a while.** The bearer token for the embedded Orchestrator is short-lived on purpose. A script asks for a new one each time it runs, and keeps only the API token, which lasts until its expiry date or until you revoke it. Treat the API token as a password: keep it in your pipeline's secret store, never in a script or a Git repository.
+
+<ThenNow
+  then="Call <code>/vco/api</code> with the user name and password of a vRO user, whatever the server's authentication mode."
+  now="A standalone appliance with vSphere authentication still accepts a user name and password. The Orchestrator embedded in VCF Automation needs a bearer token, exchanged from an API token created in the organization portal." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**Copy what the client does.** The quickest way to learn a call is to watch the client make it. Open your browser's developer tools on the **Network** tab, do the thing in the Orchestrator Client, and look at the request it sent: the path, the method, and the JSON body. That's how you'll find the format of an input in recipe 7.2 when the reference only says `object`.
+
+**The Orchestrator gateway in VCF Automation.** VCF Automation 9.1 also has an **Automation Orchestrator Gateway API**, with paths such as `/vro/workflows` and `/vro/runs`, that reaches the Orchestrator integrations of an organization through VCF Automation. It uses query options such as `$filter` and `$top` rather than `conditions`. Use it when a VCF Automation project, rather than one Orchestrator, is the thing you're scripting against. Its reference is linked from **API Documentation** in the VCF Automation user menu.
+
+<Verify>Check on VCF Automation 9.1 where the gateway API's reference is (a community answer points to <code>/vco/api-docs/modern-tenancy</code>), which organization types offer it, and whether <code>POST /vro/runs</code> can run a workflow on the embedded Orchestrator with the same access token as part C.</Verify>
+
+**Don't reach for `-k`.** Many examples on the internet call Orchestrator with `curl -k`, which skips certificate checks. That also skips the only thing that tells your script it's talking to the real server before it sends a password. Keep the CA certificate next to your scripts and pass it with `--cacert`.
+
+**Read the change log before an upgrade.** The API reference on the Broadcom developer portal has an **API ChangeLog** page per release. Check it before you upgrade an Orchestrator that scripts and pipelines depend on.
+
+**PowerShell.** On Windows, `Invoke-RestMethod` does everything `curl` and `jq` do here, and returns objects you can filter with `Where-Object`. Recipe 7.2 shows it.
+
+</Recipe>
+
+<Recipe type="see">
+
+- [1.3 Choosing an authentication provider](../../../chapter-1/recipes/03-choosing-authentication/), which decides how the API authenticates you.
+- [6.4 Promoting content from development to production](../../../chapter-6/recipes/04-promoting-content/) and [6.5 Signing and trusting packages](../../../chapter-6/recipes/05-signing-and-trust/), which use the API for packages.
+- [7.2 Starting workflows from scripts](../02-starting-workflows/), which uses `vro-env.sh` to run a workflow and read its result.
+- Broadcom developer documentation: [VCF Operations Orchestrator API 9.1](https://developer.broadcom.com/xapis/vcf-operations-orchestrator-api/9.1), its [API security schema](https://developer.broadcom.com/xapis/vcf-operations-orchestrator-api/9.1/api-security-schema/), and the [Automation Orchestrator Gateway API 9.1](https://developer.broadcom.com/xapis/vm-apps-org-orchestrator-gateway/9.1/).
+- Broadcom TechDocs (VCF 9.0): [Generating API tokens for the service provider account](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/administration-sdks-cli-and-tools/about-the-vcf-automation-api/service-provider-portal/generating-provider-management-api-tokens.html), for the API token and its exchange.
+- Broadcom KB [440608](https://knowledge.broadcom.com/external/article/440608/aria-orchestrator-basic-authentication-p.html): the Basic authentication property doesn't apply to standalone instances.
+- Broadcom community: [Swagger for the Orchestrator API in VCF 9.0](https://community.broadcom.com/vmware-cloud-foundation/discussion/what-is-the-way-to-get-access-to-swagger-orchestrator-api-via-api-help-center-in-vcf-90-in-all-apps-org).
+
+</Recipe>

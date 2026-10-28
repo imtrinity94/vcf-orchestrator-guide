@@ -1,0 +1,194 @@
+---
+title: XML and JSON
+description: Recipe 5.6 — build and parse JSON with plain JavaScript, convert between Java objects, Properties and JSON safely, and build and read XML with the XML plug-in instead of E4X.
+sidebar:
+  label: 5.6 XML and JSON
+  order: 6
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+Most of what a workflow sends and receives is text in one of two formats. REST APIs speak JSON, and so do message queues and most tools you'll call from a script. XML is still the language of SOAP services, many network devices, older APIs, and configuration files. Orchestrator handles JSON with the JavaScript engine's own `JSON` object, and XML with the XML plug-in.
+
+In this recipe you write four small actions in `com.vcfguide.chapter5`: two that turn VM facts into JSON and back, and two that do the same with XML. They show the conversions that trip people up: Java strings that aren't quite JavaScript strings, `Properties` that `JSON.stringify` can't see into, and XML parsing that no longer works the way it did in vRO 7.
+
+<Recipe type="ready">
+
+- The action `com.vcfguide.chapter4/getVmFacts` from recipe 4.2, which returns a VM's facts as `Properties`, and the vCenter `vc01.vmw.lab` registered with the vCenter plug-in.
+- A login that can create actions in `com.vcfguide.chapter5`.
+
+</Recipe>
+
+<Recipe type="how">
+
+**Build JSON**
+
+1. In **Library** > **Actions**, create the action `vmFactsToJson` in `com.vcfguide.chapter5`, with the input `vms` of type `Array/VC:VirtualMachine` and the **Return type** `string`:
+
+```javascript title="com.vcfguide.chapter5/vmFactsToJson"
+// Returns the facts of the VMs as a JSON document.
+var chapter4 = System.getModule("com.vcfguide.chapter4");
+
+var document = {
+    vcenter: "vc01.vmw.lab",
+    generated: new Date().toISOString(),
+    vms: []
+};
+for (var i = 0; i < vms.length; i++) {
+    var facts = chapter4.getVmFacts(vms[i]);
+    // Copy each value into a plain JavaScript value: JSON.stringify
+    // can't read Properties or Java strings.
+    document.vms.push({
+        name: String(facts.get("name")),
+        powerState: String(facts.get("powerState")),
+        cpus: Number(facts.get("cpus")),
+        memoryMb: Number(facts.get("memoryMb")),
+        guestOs: facts.get("guestOs") ? String(facts.get("guestOs")) : null
+    });
+}
+return JSON.stringify(document, null, 2);
+```
+
+2. Run it with two VMs. The result is a JSON document with a `vms` array of two objects, indented by two spaces.
+
+<Figure n="5.16" caption="VM facts as JSON, built from Properties with explicit conversions."
+  capture="Run of action <code>com.vcfguide.chapter5/vmFactsToJson</code> with two VMs: the result, an indented JSON document with <code>vcenter</code>, <code>generated</code>, and a <code>vms</code> array of two objects." />
+
+**Parse JSON**
+
+3. Create the action `parseVmFactsJson`, with the input `json` of type `string` and the **Return type** `Array/Properties`:
+
+```javascript title="com.vcfguide.chapter5/parseVmFactsJson"
+// Parses a document made by vmFactsToJson and returns one Properties
+// object per VM, so a workflow can bind the result to a variable.
+var document;
+try {
+    document = JSON.parse(json);
+} catch (e) {
+    throw "parseVmFactsJson: not valid JSON: " + e;
+}
+if (!document || !(document.vms instanceof Array)) {
+    throw "parseVmFactsJson: the document has no vms array";
+}
+
+var result = [];
+for (var i = 0; i < document.vms.length; i++) {
+    var vm = document.vms[i];
+    var props = new Properties();
+    props.put("name", vm.name);
+    props.put("powerState", vm.powerState);
+    props.put("cpus", vm.cpus);
+    props.put("memoryMb", vm.memoryMb);
+    result.push(props);
+}
+System.log(result.length + " VMs in a document generated " + document.generated);
+return result;
+```
+
+4. Copy the result of step 2, run `parseVmFactsJson`, and paste it into `json`. The result is an array of two `Properties`, and the log names the time the document was made.
+5. Run it again with `{"vms": 1}`. It fails with *the document has no vms array*, which is easier to act on than a `TypeError` three lines later.
+
+<Verify>On 9.1.1, check what <code>JSON.stringify</code> returns for a <code>Properties</code> object and for an unconverted value from <code>facts.get(…)</code>, so the book can show the failure the conversions in step 1 prevent. Earlier releases return <code>{}</code> for <code>Properties</code> and can throw or quote Java strings unexpectedly.</Verify>
+
+**Build XML**
+
+6. Create the action `vmFactsToXml`, with the input `vms` of type `Array/VC:VirtualMachine` and the **Return type** `string`:
+
+```javascript title="com.vcfguide.chapter5/vmFactsToXml"
+// Returns the facts of the VMs as an XML document, built with the XML plug-in.
+var chapter4 = System.getModule("com.vcfguide.chapter4");
+
+var document = XMLManager.newDocument();
+var root = document.createElement("vmFacts");
+root.setAttribute("vcenter", "vc01.vmw.lab");
+document.appendChild(root);
+
+for (var i = 0; i < vms.length; i++) {
+    var facts = chapter4.getVmFacts(vms[i]);
+    var vm = document.createElement("vm");
+    vm.setAttribute("name", String(facts.get("name")));
+    vm.setAttribute("powerState", String(facts.get("powerState")));
+    vm.setAttribute("cpus", String(facts.get("cpus")));
+    vm.setAttribute("memoryMb", String(facts.get("memoryMb")));
+    root.appendChild(vm);
+}
+return XMLManager.getDocumentContent(document);
+```
+
+7. Run it with the same two VMs. The result is an XML declaration, a `vmFacts` element, and one `vm` element for each VM. Characters such as `&` and `<` in a VM name are escaped for you.
+
+**Read XML**
+
+8. Create the action `readVmFactsXml`, with the input `xml` of type `string` and the **Return type** `Array/string`:
+
+```javascript title="com.vcfguide.chapter5/readVmFactsXml"
+// Reads a document made by vmFactsToXml and returns one line per VM.
+var document = XMLManager.fromString(xml);
+var nodes = document.getElementsByTagName("vm");
+
+var lines = [];
+for (var i = 0; i < nodes.length; i++) {
+    var vm = nodes.item(i);
+    lines.push(vm.getAttribute("name") + ": " + vm.getAttribute("powerState")
+        + ", " + vm.getAttribute("cpus") + " vCPU, "
+        + vm.getAttribute("memoryMb") + " MB");
+}
+return lines;
+```
+
+9. Run it with the result of step 7. You get one line for each VM.
+
+<Figure n="5.17" caption="An XML document built with the XML plug-in, and read back."
+  capture="Two runs side by side: <code>vmFactsToXml</code> with its XML result (declaration, <code>vmFacts</code>, two <code>vm</code> elements with attributes), and <code>readVmFactsXml</code> with that XML as input and two result lines." />
+
+<Verify>Check every XML call in the API Explorer on 9.1.1: <code>XMLManager.newDocument()</code>, <code>XMLManager.getDocumentContent(document)</code>, <code>XMLManager.fromString(string)</code>, <code>createElement</code>, <code>setAttribute</code>, <code>appendChild</code>, <code>getElementsByTagName</code>, and whether the node list has a <code>length</code> property and an <code>item(i)</code> method. Broadcom KB 438656 confirms only <code>XMLManager.fromString</code>.</Verify>
+
+</Recipe>
+
+<Recipe type="works">
+
+**JSON is part of the language.** `JSON.parse` and `JSON.stringify` are in ECMAScript 5.1, so they need no plug-in. They work on JavaScript values: objects, arrays, strings, numbers, booleans, and `null`. Everything a plug-in hands you is something else: a Java object wrapped so that scripts can use it. `Properties`, `VC:VirtualMachine`, and the strings inside a `Properties` are Java objects. `JSON.stringify` can't look inside them, so it leaves them out, writes `{}`, or fails. `String()` and `Number()` turn them into plain values, which is why step 1 copies each fact into a new object first. Going the other way, `JSON.parse` gives plain values, and step 3 puts them into `Properties` because a workflow variable can't hold a plain JavaScript object.
+
+**Check what you parse.** `JSON.parse` only tells you the text is valid JSON. It doesn't tell you the document has the shape you expect. Test for the fields you need straight after parsing, and throw an error that names what's missing, as step 3 does.
+
+**The XML plug-in is a DOM parser.** `XMLManager` creates and parses documents. A document is a tree of nodes, and you walk it with the same calls as the DOM in a web browser: `getElementsByTagName`, `getAttribute`, `childNodes`, `textContent`. When you build a document, the plug-in escapes text and attribute values and writes the XML declaration, so you never build XML by adding strings together.
+
+<ThenNow
+  then="Parse and build XML with E4X: <code>new XML(text)</code>, <code>doc.vm.(@name == 'web01')</code>, and XML literals in the script."
+  now="Use the XML plug-in's <code>XMLManager</code>. On 9.0.2, <code>new XML(text)</code> fails on a document that starts with an XML declaration, and Broadcom's fix is <code>XMLManager.fromString(text)</code> (KB 438656)." />
+
+<Verify>Find out whether E4X (<code>new XML()</code>, the <code>XML</code> and <code>XMLList</code> objects) still works on 9.1.1 for a document without an XML declaration, and which Rhino version 9.1.1 runs. Community sources disagree on the version.</Verify>
+
+</Recipe>
+
+<Recipe type="more">
+
+**JSON from a REST API.** Recipe 5.2 parsed vCenter's answer with `JSON.parse(response.contentAsString)`. The same checks apply: test `statusCode` first, then parse, then check the fields. To send JSON, build a plain object, `JSON.stringify` it, and pass the string as the request's content with the header `Content-Type: application/json`.
+
+**Field names with spaces or symbols.** Some APIs use keys such as `Asset ID` or `x-request-id`. Read them with brackets: `row["Asset ID"]`.
+
+**Big numbers.** JavaScript numbers are 64-bit floating point, so an integer above 2<sup>53</sup>, such as some object IDs and byte counts, loses its last digits in `JSON.parse`. If an API returns IDs as long numbers, ask for them as strings, or compare them as text.
+
+**Namespaces.** SOAP replies and many vendor formats put every element in a namespace, such as `<soap:Envelope>`. `getElementsByTagName("Envelope")` won't find it. Use the full name with the prefix the document uses, `getElementsByTagName("soap:Envelope")`, or the namespace-aware call if the API Explorer lists one.
+
+<Verify>Check whether the 9.1.1 XML plug-in has a namespace-aware lookup such as <code>getElementsByTagNameNS</code>, and whether <code>getElementsByTagName</code> matches the prefixed name.</Verify>
+
+**Files.** `XMLManager` can also read and save XML files on the server. Only paths the server may write to work; on 9.x that is `/var/run/vco` (recipe 5.3). Store the content in a resource element instead if more than one run needs it.
+
+**Built-in samples.** Search with the tag `xml` for the plug-in's sample workflows. They build a small address book document and find elements in it, and their scripts are a quick reference to the DOM calls.
+
+</Recipe>
+
+<Recipe type="see">
+
+- [4.1 The Rhino engine](../../../chapter-4/recipes/01-rhino-engine/), for ES5.1 and Java objects in scripts.
+- [5.2 REST hosts and operations](../02-rest-hosts/), for JSON over HTTP.
+- [5.7 AMQP and messaging](../07-amqp/), which sends these JSON documents as messages.
+- Broadcom TechDocs (VCF 9.0): [Plug-ins installed with the VCF Operations orchestrator server](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/vcf-ochestrator-plugins-overview/manage-the-orchestrator-plug-ins/default-orchestrator-plug-ins-new.html), which describes the XML plug-in as a DOM parser, and [Using the XML plug-in](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/vcf-ochestrator-plugins-overview/using-the-xml-plug-in.html).
+- Broadcom KB [438656](https://knowledge.broadcom.com/external/article/438656/passing-xml-payload-into-new-xml-generat.html): `new XML()` fails in 9.0.2; use `XMLManager.fromString`.
+- Broadcom KB [454667](https://knowledge.broadcom.com/external/article/454667/error-secureproperties-is-undefined-when.html): action inputs and outputs, `Properties`, and composite types.
+- ECMAScript 5.1: [The JSON object](https://262.ecma-international.org/5.1/#sec-15.12).
+
+</Recipe>

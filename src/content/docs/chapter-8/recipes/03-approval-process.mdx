@@ -1,0 +1,193 @@
+---
+title: An approval process for provisioning
+description: Recipe 8.3 — put an approval in front of VM provisioning. Approve small requests automatically, mail the approvers about the rest, wait for an answer from a named group with a deadline, build the VM only on a yes, and tell the requester what happened in every case.
+sidebar:
+  label: 8.3 An approval process for provisioning
+  order: 3
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+Recipe 8.2 builds a VM for anyone who can run the workflow. In most teams some requests need a second person to say yes first: a large VM, a production network, anything that costs money. This recipe adds that step without changing the provisioning workflow at all.
+
+You build **Request a VM**, a workflow that sits in front of **Provision a VM from a template**. Small VMs are approved automatically. Bigger ones send a mail to the approvers and wait, up to a deadline, for a member of `OrchestratorApprovers` to answer. Only an approved request reaches the provisioning workflow, and the requester gets a mail whatever the outcome: built, rejected, or expired. The rules live in a configuration element, so changing the size limit or the deadline doesn't need a new version of the workflow.
+
+<Recipe type="ready">
+
+- The workflow **Provision a VM from a template** from recipe 8.2.
+- The user interaction from recipe 3.9. This recipe uses the same element, with a group of approvers.
+- Mail set up as in recipe 5.5, and the action `com.vcfguide.chapter5/sendHtmlMail`.
+- A group `OrchestratorApprovers` in vSphere SSO with at least one member who isn't you, and a mail address that reaches its members, here `approvers@vmw.lab`.
+- Binding a variable to a configuration element, from recipe 4.7.
+
+</Recipe>
+
+<Recipe type="how">
+
+**Keep the rules in a configuration element**
+
+1. Go to **Assets** > **Configurations** and create `vcfguide-ch8-provisioning` in the folder **VCF Orchestrator Guide/Chapter 8**, with four variables:
+
+| Name | Type | Value | Means |
+|---|---|---|---|
+| `autoApproveMaxCpus` | `number` | `2` | Requests up to this many vCPUs… |
+| `autoApproveMaxMemoryMb` | `number` | `4096` | …and this much memory are approved automatically |
+| `approvalHours` | `number` | `24` | How long a request waits for an answer |
+| `approverMail` | `string` | `approvers@vmw.lab` | Where approval requests are mailed |
+
+2. Create the action `isAutoApproved` in `com.vcfguide.chapter8`, with the inputs `cpus`, `memoryMb`, `maxCpus`, and `maxMemoryMb`, all `number`, and the return type `boolean`:
+
+```javascript title="com.vcfguide.chapter8/isAutoApproved"
+var small = cpus <= maxCpus && memoryMb <= maxMemoryMb;
+System.log(cpus + " vCPU / " + memoryMb + " MB is " +
+           (small ? "within" : "above") + " the automatic limit of " +
+           maxCpus + " vCPU / " + maxMemoryMb + " MB");
+return small;
+```
+
+**Set up the workflow**
+
+3. Create the workflow **Request a VM** in **VCF Orchestrator Guide/Chapter 8**. On **Inputs/Outputs**, add the same eight inputs as **Provision a VM from a template** (`template`, `vmName`, `folder`, `cluster`, `datastore`, `specName`, `cpus`, `memoryMb`), plus `requesterMail` and `reason`, both `string`. Add the outputs `vm` (`VC:VirtualMachine`), `ipAddress` (`string`), and `outcome` (`string`).
+4. On the **Variables** tab, add the four settings, each bound to the variable of the same name in `vcfguide-ch8-provisioning`, as in recipe 4.7. Then add the working variables:
+
+| Name | Type | Holds |
+|---|---|---|
+| `needsApproval` | `boolean` | Whether the request goes to an approver |
+| `approvalDeadline` | `Date` | When the request stops waiting |
+| `approved` | `boolean` | The approver's answer |
+| `approverComment` | `string` | The approver's reason |
+| `approvalError` | `string` | The error when nobody answers in time |
+
+<Verify>Check on 9.1.1 that a workflow variable bound to a configuration element can be bound as an input of a scriptable task like any other variable, and that a change to the configuration element is picked up by the next run without a new workflow version.</Verify>
+
+**Decide whether to ask**
+
+5. On the **Schema** tab, add a scriptable task `Check the request`, with `cpus`, `memoryMb`, `autoApproveMaxCpus`, `autoApproveMaxMemoryMb`, and `approvalHours` in, and `needsApproval` and `approvalDeadline` out:
+
+```javascript title="Request a VM — Check the request"
+var auto = System.getModule("com.vcfguide.chapter8").isAutoApproved(
+    cpus, memoryMb, autoApproveMaxCpus, autoApproveMaxMemoryMb);
+needsApproval = !auto;
+approvalDeadline = new Date(new Date().getTime() + approvalHours * 60 * 60 * 1000);
+if (needsApproval) {
+    System.log("Approval needed by " + approvalDeadline);
+}
+```
+
+6. Add a decision `Needs approval?` after it, testing `needsApproval`. Its false branch goes straight to the provisioning step you add in step 12.
+
+**Ask the approvers**
+
+7. On the true branch, add a scriptable task `Mail the approvers`, with `approverMail`, `vmName`, `template`, `cpus`, `memoryMb`, `reason`, `requesterMail`, and `approvalDeadline` in:
+
+```javascript title="Request a VM — Mail the approvers"
+function esc(text) {
+    return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+var html = "<p>A VM request is waiting for your approval.</p>" +
+    "<table>" +
+    "<tr><td>VM name</td><td>" + esc(vmName) + "</td></tr>" +
+    "<tr><td>Template</td><td>" + esc(template.name) + "</td></tr>" +
+    "<tr><td>Size</td><td>" + cpus + " vCPU, " + memoryMb + " MB</td></tr>" +
+    "<tr><td>Requested by</td><td>" + esc(requesterMail) + "</td></tr>" +
+    "<tr><td>Reason</td><td>" + esc(reason) + "</td></tr>" +
+    "<tr><td>Answer by</td><td>" + esc(approvalDeadline.toString()) + "</td></tr>" +
+    "</table>" +
+    "<p>Answer it in the Orchestrator Client, under Activity &gt; Waiting for Input: " +
+    "<a href=\"https://vco01.vmw.lab/orchestration-ui/\">https://vco01.vmw.lab/orchestration-ui/</a></p>" +
+    "<p>Run ID: " + workflow.id + "</p>";
+
+System.getModule("com.vcfguide.chapter5").sendHtmlMail(
+    approverMail, "Approval needed: VM " + vmName, html);
+```
+
+8. After it, add a **User interaction** called `Ask for approval`, as in recipe 3.9: bind `timeout.date` to `approvalDeadline`, add `approved` and `approverComment` as its form inputs, label them `Approve this request` and `Reason`, and make `Reason` required.
+9. Restrict who can answer. Bind `security.assignee.groups` to a value that holds the group `OrchestratorApprovers`. Only its members, and Orchestrator administrators, can answer.
+
+<Verify>On 9.1.1 with vSphere authentication, find how to give <code>security.assignee.groups</code> a fixed group (a variable of the group type with a value picked from vSphere SSO, or a value set on the element), record the type name, and confirm that a member of <code>OrchestratorApprovers</code> can answer and that a user outside it, including the requester, can't. Check the client's URL in the mail (<code>/orchestration-ui/</code>) and that <code>workflow.id</code> in a scriptable task returns the run's ID.</Verify>
+
+10. Add a decision `Approved?` after the user interaction, testing `approved`. On its false branch, add a scriptable task `Tell the requester: rejected`, with `requesterMail`, `vmName`, and `approverComment` in and `outcome` out, and connect it to an end element:
+
+```javascript title="Request a VM — Tell the requester: rejected"
+outcome = "Rejected: " + approverComment;
+System.getModule("com.vcfguide.chapter5").sendHtmlMail(requesterMail,
+    "VM " + vmName + " was not approved",
+    "<p>Your request for " + vmName + " was rejected.</p><p>Reason: " +
+    approverComment.replace(/</g, "&lt;") + "</p>");
+System.log(outcome);
+```
+
+11. Draw the exception path of `Ask for approval` to a scriptable task `Tell the requester: expired`, binding the error to `approvalError`, as in recipe 3.9. It sets `outcome` to `Expired: nobody answered by ` plus the deadline, mails the requester, and ends.
+
+**Build and report**
+
+12. Drag the workflow **Provision a VM from a template** onto the schema, where the true branch of `Approved?` and the false branch of `Needs approval?` meet. Bind its eight inputs to the workflow inputs of the same name, and its outputs `vm` and `ipAddress` to the workflow outputs.
+13. After it, add a scriptable task `Tell the requester: ready`, with `requesterMail`, `vm`, and `ipAddress` in and `outcome` out. It sets `outcome` to `Built: ` plus the VM's name and address, and mails the same text to the requester.
+
+<Figure n="8.6" caption="The approval process around the provisioning workflow."
+  capture="Full <b>Schema</b> of <b>Request a VM</b>: <b>Check the request</b>, <b>Needs approval?</b>; true branch <b>Mail the approvers</b> → <b>Ask for approval</b> → <b>Approved?</b>, with <b>Tell the requester: rejected</b> on false and a red dashed exception arrow from <b>Ask for approval</b> to <b>Tell the requester: expired</b>; false branch of <b>Needs approval?</b> and true branch of <b>Approved?</b> both into the workflow element <b>Provision a VM from a template</b> → <b>Tell the requester: ready</b>." />
+
+**Try every path**
+
+14. Run **Request a VM** with `vcfguide-web-02`, 1 vCPU, 2048 MB, and your own mail address as `requesterMail`. It skips the approval, builds the VM, and mails you *Built*.
+15. Run it again with `vcfguide-web-03` and 4 vCPU. The run stops in **Waiting**, and the approvers' mailbox has *Approval needed: VM vcfguide-web-03*.
+16. Log in as a member of `OrchestratorApprovers`, open **Activity** > **Waiting for Input**, select the request, choose **Approve this request**, enter a reason, and answer. The run carries on into **Provision a VM from a template**, and you get the *Built* mail.
+17. Run it a third time with `vcfguide-web-04` and 4 vCPU, and answer with **Approve this request** cleared and the reason `Too large for the lab`. No VM is built, and the *not approved* mail carries the reason.
+18. To see the expiry path without waiting a day, set `approvalHours` in `vcfguide-ch8-provisioning` to `0.05`, request `vcfguide-web-05` with 4 vCPU, and don't answer. About three minutes later the run follows the exception path and you get the *Expired* mail. Set `approvalHours` back to `24`.
+19. Delete `vcfguide-web-02` and `vcfguide-web-03`.
+
+<Figure n="8.7" caption="An approver answering a VM request."
+  capture="Logged in as a member of <code>OrchestratorApprovers</code>: <b>Activity > Waiting for Input</b> with the <b>Request a VM</b> run for <code>vcfguide-web-03</code>, answer form open with <b>Approve this request</b> selected and <b>Reason</b> filled; beside it the approval mail with the request table and the link." />
+
+<Figure n="8.8" caption="Four runs, four outcomes."
+  capture="<b>Activity > Workflow Runs</b> filtered on <b>Request a VM</b>: four completed runs; <b>Variables</b> tab of each, or a composite, with <code>outcome</code> = <i>Built: vcfguide-web-02 …</i>, <i>Built: vcfguide-web-03 …</i>, <i>Rejected: Too large for the lab</i>, <i>Expired: nobody answered by …</i>." />
+
+<Verify>Walk steps 14 to 18 on 9.1.1. Confirm that the parent run shows the nested <b>Provision a VM from a template</b> run, that an expired request ends <b>Completed</b> (not <b>Failed</b>) through the exception path, and whether the run records who answered the user interaction, and where (run details, logs, or the audit log). If it does, add the approver's name to the <i>Built</i> and <i>rejected</i> mails.</Verify>
+
+</Recipe>
+
+<Recipe type="works">
+
+**Two workflows, two jobs.** **Provision a VM from a template** knows how to build a VM. **Request a VM** knows who may ask for one and who has to agree. Keeping them apart means the provisioning workflow can still be called directly, by a pipeline or by VCF Automation, which have their own controls, and the approval rules can change without a new version of the build.
+
+**The wait costs nothing.** While a request waits for an answer, the run is saved in Orchestrator's database and holds no thread, as recipe 3.9 explains. A day's deadline, or a hundred requests waiting at once, doesn't load the server. A restart doesn't lose them.
+
+**The mail doesn't answer anything.** The mail tells the approvers that a request exists. The answer itself is given in the Orchestrator Client, or through the REST API, where Orchestrator checks that the person is allowed to answer. Someone who forwards the mail can't approve the request by doing so.
+
+**Rules as data.** The limits and the deadline are read from `vcfguide-ch8-provisioning` when each run starts. Changing them is a change to a configuration element, which version history records (recipe 6.1), and which can differ between a development and a production Orchestrator when you promote the workflow (recipe 6.4).
+
+<ThenNow
+  then="Build approvals in the Java client with a user interaction and an external link in a mail, often answered from the vSphere Web Client or a web view."
+  now="The same user interaction, answered in the browser client under <b>Activity</b> > <b>Waiting for Input</b> or through the REST API. Catalog requests in VCF Automation use VCF Automation's own approval policies instead." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**Requests from the VCF Automation catalog.** When users order VMs from the VCF Automation catalog, don't build the approval in Orchestrator. Use VCF Automation's approval policies, which decide which requests need approval and who answers, and are answered in VCF Automation. In 9.1 they also have an API: the VM Apps organization's **Approval Service** lists, approves, and rejects approval requests and manages approval policies. An Orchestrator workflow in that setup does the build and the steps around it, and the approval stays in one place. Broadcom KB 438602 is a warning for workflows that create approval policies themselves during a request: on 8.x the policy could take effect too late for the request that created it, and the KB adds a pause after the call.
+
+<Verify>Check the VCF Automation 9.1 approval policies at <code>auto.vmw.lab</code>: where they're created in the VM Apps organization, which request types and criteria they support, and whether a catalog item backed by an Orchestrator workflow can have one. The planned recipe on workflows as catalog items will build on this.</Verify>
+
+**Remind and escalate.** A request that expires because the only approver is on holiday isn't a good outcome. Instead of one long wait, wait half the time, then mail a reminder to the same group or a manager's group, and wait again with a second user interaction. The second interaction can have a different `security.assignee.groups`.
+
+**Answer from somewhere else.** Approvers who live in a ticketing tool or a chat client don't need to open Orchestrator. Recipe 3.9 shows the REST call that answers a user interaction. A small integration on the ticket or chat side can make that call when someone clicks **Approve**, with an account that's allowed to answer.
+
+**Ask the approver for more.** The answer form can ask for more than yes or no. An approver could pick the datastore, or cut the memory to what they're willing to approve, and **Request a VM** passes the answer on to the build instead of the requested value.
+
+**Four eyes.** Orchestrator administrators can answer any user interaction. If your process says the requester must never approve their own request, don't rely on the group alone: in `Check the request`, record `Server.getRunningUser().name`, and after the answer compare it with the person who answered, if the run records them (see the lab check above), and reject the request when they're the same.
+
+</Recipe>
+
+<Recipe type="see">
+
+- [3.9 User interactions and approvals](../../../chapter-3/recipes/09-user-interactions/), for the user interaction element and answering through the REST API.
+- [4.7 Configuration elements in code](../../../chapter-4/recipes/07-configuration-elements/), for binding variables to a configuration element.
+- [5.5 Sending and reading mail](../../../chapter-5/recipes/05-mail/), for `sendHtmlMail`.
+- [8.2 Provisioning a VM from a template](../02-vm-from-template/), the workflow this one calls.
+- Broadcom TechDocs (VCF 9.0): [Set the user interaction security.group variable](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/developing-workflows-with-vcf-operations-orchestrator/vcfo-requesting-user-interactions-while-a-workflow-runs/vcfo-set-the-user-interaction-security-group-variable.html), [Set the timeout.date variable to an absolute date](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/developing-workflows-with-vcf-operations-orchestrator/vcfo-requesting-user-interactions-while-a-workflow-runs/vcfo-set-the-timeoutdate-variable-to-an-absolute-date.html), [Define user interaction exception behavior](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/developing-workflows-with-vcf-operations-orchestrator/vcfo-requesting-user-interactions-while-a-workflow-runs/vcfo-define-user-interaction-exception-behavior.html), and [Call a workflow synchronously](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/developing-workflows-with-vcf-operations-orchestrator/vcfo-calling-workflows-within-workflows/vcfo-call-a-workflow-synchronously.html).
+- Broadcom developer portal: [VCF Automation API 9.1, VM Apps organization Approval Service](https://developer.broadcom.com/xapis/vm-apps-org-approval/9.1/).
+- Broadcom KB [438602](https://knowledge.broadcom.com/external/article/438602/approval-policy-created-via-api-during-d.html): an approval policy created through the API during a deployment isn't applied.
+
+</Recipe>
