@@ -1,0 +1,128 @@
+---
+title: The Orchestrator plug-in for the vSphere Client
+description: Recipe 8.9 — run Orchestrator workflows from the vSphere Client. Turn on the plug-in service on the standalone appliance, register it with vCenter, run and follow workflows from the Orchestrator view, and map a workflow to VMs as a context action that starts from the right-click menu.
+sidebar:
+  label: 8.9 The vSphere Client plug-in
+  order: 9
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+Most vSphere administrators live in the vSphere Client. The workflows in this chapter are useful to them, but asking them to open another console, find the workflow, and pick the VM again from a tree is the kind of friction that keeps automation unused. The **Orchestrator plug-in for the vSphere Client** puts Orchestrator inside the vSphere Client. It shows workflows, runs, schedules, and workflows waiting for input, and its **context actions** add chosen workflows to the right-click menu of vSphere objects, with the object already filled in.
+
+This recipe turns the plug-in on for `vco01.vmw.lab`, registers it with `vc01.vmw.lab`, and makes **Snapshot a VM** from recipe 8.1 a context action on virtual machines. Broadcom's documentation calls it the plug-in for vSphere Web Client, and the appliance calls its service `vcoin`.
+
+<Recipe type="ready">
+
+- The standalone appliance `vco01.vmw.lab` with **vSphere authentication** against `vc01.vmw.lab`, as set up in recipe 1.4. The plug-in isn't supported on the Orchestrator embedded in VCF Automation, or with the other authentication providers.
+- `vc01.vmw.lab` registered in Orchestrator, from recipe 1.9. vSphere 8.0 Update 3 or later, which every VCF 9 vCenter is.
+- Root SSH access to `vco01`, from recipe 2.1. Step 3 restarts Orchestrator, so pick a quiet moment.
+- The workflow **Snapshot a VM** from recipe 8.1, and the test VM `vcfguide-test-01`.
+- A vCenter account that is an Orchestrator administrator, such as a member of `OrchestratorAdmins` from recipe 1.4.
+
+</Recipe>
+
+<Recipe type="how">
+
+**Turn on the plug-in service**
+
+1. Log in to `vco01.vmw.lab` over SSH as `root`.
+2. Turn on the `vcoin` capability:
+
+```bash title="vco01: turn on the plug-in service"
+vracli cap vcoin --enable
+```
+
+`vracli cap vcoin --help` lists the other options: `--disable` turns it off again, and `--replay` runs the state checks again if a first attempt was interrupted.
+
+3. Redeploy the services so the plug-in starts. This restarts Orchestrator, and takes as long as the `deploy.sh` run in recipe 2.2:
+
+```bash title="vco01: redeploy"
+/opt/scripts/deploy.sh
+```
+
+<Verify>On 9.1.1, record the output of <code>vracli cap vcoin --enable</code>, whether there's a command that shows the capability's current state, and the path of the redeploy script. The 9.1 TechDocs page prints <code>/opt/script/deploy.sh</code>; recipe 2.2 and the 8.x documentation use <code>/opt/scripts/deploy.sh</code>.</Verify>
+
+<Figure n="8.24" caption="Turning on the plug-in service on the appliance."
+  capture="SSH session on <code>vco01</code>: <code>vracli cap vcoin --enable</code> and its output, then the start and the end of <code>/opt/scripts/deploy.sh</code>." />
+
+**Register it with vCenter**
+
+4. Log in to the Orchestrator Client on `vco01` as an administrator, go to **Library** > **Workflows**, and type `vc` in the search box.
+5. Find **Register VCF Operations Orchestrator Plug-in for vSphere Web Client Extension** and click **Run**.
+6. In **SDK Connection**, choose or enter the vCenter endpoint `vc01.vmw.lab`. In **Address**, enter the plug-in's address on the appliance, `https://vco01.vmw.lab`. Click **Run**.
+7. When the run completes, run **List the VCF Operations Orchestrator Plug-in for vSphere Web Client Extensions** on `vc01.vmw.lab`. Its log shows the extension that vCenter now knows, with its version and address.
+
+<Figure n="8.25" caption="Registering the plug-in with vCenter from a library workflow."
+  capture="Orchestrator Client, <b>Library > Workflows</b> filtered on <code>vc</code>, run form of <b>Register VCF Operations Orchestrator Plug-in for vSphere Web Client Extension</b> with <b>SDK Connection</b> = <code>vc01.vmw.lab</code> and <b>Address</b> = <code>https://vco01.vmw.lab</code>; beside it the completed run of <b>List the … Extensions</b> with the extension in its log." />
+
+<Verify>On 9.1.1, record the folder the registration workflows live in, whether <b>SDK Connection</b> is a picker of registered vCenters or a URL, the exact address to enter (with or without a port or path), and what the list workflow prints.</Verify>
+
+**Use it in the vSphere Client**
+
+8. Log in to the vSphere Client on `vc01.vmw.lab` as an Orchestrator administrator, and reload the browser page if it was already open. The plug-in appears in the main menu. Open its home page.
+9. The home page has tabs for **Workflows**, **Workflow Runs**, **Scheduled**, **Waiting for Input**, and **Context Actions**. On **Workflows**, search for **List VMs by name** from recipe 3.2, run it with `^vcfguide`, and follow the run on **Workflow Runs**. It's the same run you'd see on `vco01` under **Activity** > **Workflow Runs**, started by your vCenter account.
+
+<Figure n="8.26" caption="Orchestrator inside the vSphere Client."
+  capture="vSphere Client 9 on <code>vc01.vmw.lab</code>, main menu open with the Orchestrator entry; the plug-in's home page with its tabs, <b>Workflow Runs</b> selected, the run of <b>List VMs by name</b> completed and its output." />
+
+<Verify>In the vSphere Client of VCF 9.1, record the plug-in's name in the main menu and on its home page, the exact tab names, whether a run's logs and outputs can be read in the plug-in, and whether a workflow that waits for input (such as <b>Request a VM</b> from recipe 8.3) can be answered from <b>Waiting for Input</b>.</Verify>
+
+**Add a context action**
+
+10. Open the **Context Actions** tab and click **Add**.
+11. Search for `Snapshot a VM` and select it in the results. In **Type of object**, choose **Virtual Machine**. Click **Assign**.
+12. In the inventory, right-click `vcfguide-test-01` and choose **Orchestrator** > **Run Workflow**. Pick **Snapshot a VM**.
+13. The run form opens with `vm` already set to `vcfguide-test-01`, because the workflow has an input of type `VC:VirtualMachine` and you started from a VM. Enter the snapshot name `from-vsphere-client` and click **Run**.
+14. The run appears on the plug-in's **Workflow Runs** tab, and the VM's snapshots now include `from-vsphere-client`. Remove the snapshot.
+
+<Figure n="8.27" caption="A context action on a virtual machine, with the VM filled in."
+  capture="vSphere Client, <b>Context Actions</b> tab with <b>Snapshot a VM</b> assigned to <b>Virtual Machine</b>; beside it the right-click menu of <code>vcfguide-test-01</code> open at <b>Orchestrator > Run Workflow</b>, and the run form with <code>vm</code> = <code>vcfguide-test-01</code> and <code>snapshotName</code> = <code>from-vsphere-client</code>." />
+
+<Verify>Walk steps 10 to 14 in the vSphere Client of VCF 9.1: the names in the <b>Type of object</b> list, the right-click menu path, whether the VM is filled in for a workflow with exactly one <code>VC:VirtualMachine</code> input, and where on <code>vco01</code> the plug-in stores its context actions (the configuration element the documentation says is created on first use).</Verify>
+
+</Recipe>
+
+<Recipe type="works">
+
+**A remote plug-in served by Orchestrator.** The vSphere Client loads plug-ins from other servers. Turning on `vcoin` starts the plug-in's service on the appliance, next to Orchestrator, and the registration workflow writes an **extension** into vCenter that says where to load it from and which certificate to trust. When you open the plug-in, the vSphere Client loads its pages from `vco01` and shows them inside its own frame.
+
+**Your session, your rights.** The plug-in calls Orchestrator as the vCenter user who's logged in. That's why it needs vSphere authentication, with the same vCenter as the authentication provider: Orchestrator has to accept the vCenter session. Users get the same views and rights as in the Orchestrator Client. A user without the right to run a workflow can't run it from the vSphere Client either, and a user who isn't an Orchestrator administrator sees only their own runs.
+
+**Context actions are a mapping.** A context action is a pair: a workflow and a vSphere object type. The plug-in keeps the pairs in a configuration element on `vco01` that it creates the first time it's used. Don't edit or move that element; manage the pairs from the **Context Actions** tab. When you start a context action from an object, the plug-in passes that object to the workflow's input of the same type.
+
+**One plug-in per vCenter.** A vCenter can have only one Orchestrator plug-in registered. One Orchestrator can be registered with several vCenters in the same SSO domain, which is how it works with Enhanced Linked Mode: either one Orchestrator for all of them, or several, each registered with its own vCenter.
+
+<ThenNow
+  then="vCO and vRO up to 7 came with a plug-in for the Flex-based vSphere Web Client, registered with the workflow <b>Register vCenter Orchestrator as a vCenter Server extension</b>, with workflows under <b>All vRealize Orchestrator plugin Actions</b> in the right-click menu."
+  now="Turn on <code>vcoin</code> with <code>vracli cap vcoin --enable</code>, register the remote plug-in with a library workflow, and map workflows to object types on the <b>Context Actions</b> tab. Standalone appliances with vSphere authentication only." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**After a certificate change, register again.** The extension in vCenter holds the appliance's certificate thumbprint. When you replace the certificate, as in recipe 2.2, the vSphere Client stops loading the plug-in. Run the registration workflow again to update the extension. **Advanced Options to Register VCF Operations Orchestrator Plug-in for vSphere Web Client Extension** lets you enter the extension version and the certificate by hand, when the plain workflow can't read them.
+
+**Unregister cleanly.** Before you retire or rename `vco01`, run **Unregister VCF Operations Orchestrator Plug-in for vSphere Web Client Extension** on each vCenter. Otherwise the vSphere Client keeps trying to load a plug-in from a server that's gone. Then turn the service off with `vracli cap vcoin --disable`.
+
+**Context actions for groups.** Administrators can assign context actions to Orchestrator groups, so that each group sees only its own workflows in the vSphere Client. Assigning them adds the mapped workflows and the plug-in's configuration element to the group. The documentation asks for at least one group in Orchestrator, and a VCF license for roles such as Designer and Administrator.
+
+<Verify>Recipe 1.4 says vSphere authentication has no roles or groups. Check on 9.1.1 whether a VCF license adds groups and roles to a standalone appliance with vSphere authentication, as the plug-in documentation implies, and record how a context action is assigned to a group.</Verify>
+
+**Choose workflows that fit the menu.** Good context actions take the object they start from and ask for little else: a snapshot, a health check, a tag, a move to a maintenance folder. Workflows that need half a page of inputs are better left in the catalog of VCF Automation (recipe 8.6), where a custom form can guide the user.
+
+**Upgrades.** The plug-in ships with Orchestrator and is upgraded with it. After an Orchestrator upgrade, check the list workflow's output and reload the vSphere Client.
+
+</Recipe>
+
+<Recipe type="see">
+
+- [1.4 Authenticating with vSphere](../../../chapter-1/recipes/04-vsphere-authentication/), which the plug-in needs.
+- [2.1 Activating and deactivating SSH](../../../chapter-2/recipes/01-ssh-access/) and [2.2 Replacing the appliance certificate](../../../chapter-2/recipes/02-appliance-certificate/), for `vracli`, `deploy.sh`, and certificate changes.
+- [8.1 Workflows against vCenter](../01-vcenter-workflows/), for **Snapshot a VM**.
+- Broadcom TechDocs (VCF 9.0): [Using the VCF Operations orchestrator plug-in for vSphere Web Client](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/vcf-ochestrator-plugins-overview/using-the-vcoin-plug-in.html); (VCF 9.1) [Configuring the plug-in for vSphere Web Client](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-1/configuration-of-vmware-cloud-foundation-operations-orchestrator/vcf-ochestrator-plugins-overview/using-the-vcoin-plug-in/configuring-the-vcoin-plug-in.html) and [Create a context action](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-1/configuration-of-vmware-cloud-foundation-operations-orchestrator/vcf-ochestrator-plugins-overview/using-the-vcoin-plug-in/vcoin-plug-in-inventory-ops-with-context-actions.html).
+- Broadcom TechDocs (vSphere 9.0): [Working with VCF Operations orchestrator workflows in the vSphere Client](https://techdocs.broadcom.com/us/en/vmware-cis/vsphere/vsphere/9-0/vcenter-and-host-management/automating-management-tasks-with-vco-host-management/managing-workflows-host-management.html).
+
+</Recipe>

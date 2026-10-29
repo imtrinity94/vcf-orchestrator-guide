@@ -1,0 +1,152 @@
+---
+title: Resource actions
+description: Recipe 8.8 — give VCF Automation users day 2 actions that run Orchestrator workflows. Add a snapshot action to vSphere machines with a binding action and a condition, add a rename action to the custom VM folder, entitle both with a day 2 actions policy, and run them as a project member.
+sidebar:
+  label: 8.8 Resource actions
+  order: 8
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+A deployment in VCF Automation comes with **day 2 actions**: power off, resize, add a disk, delete. Those are the actions VCF Automation knows how to do itself. Everything else your team does to a running VM, such as a snapshot before a change, a backup on demand, a move to another host, or a ticket in the service desk, you can add as a **resource action**: an Orchestrator workflow that appears in the deployment's **Actions** menu, for the resources it fits, for the users you allow.
+
+This recipe adds two. **Take a snapshot** runs the workflow **Snapshot a VM** from recipe 8.1 on vSphere machines, and shows how VCF Automation hands Orchestrator the right VM. **Rename folder** runs on the custom VM folder from recipe 8.7. A day 2 actions policy then decides who sees them, and you run both as an ordinary project member.
+
+<Recipe type="ready">
+
+- The VM Apps organization, the project `vcfguide`, and the Orchestrator integration `vco01` from recipe 8.5, with a fresh data collection so VCF Automation sees new workflows.
+- The workflow **Snapshot a VM** from recipe 8.1, and the action `waitForTask`.
+- The custom resource **VCF Guide VM folder** and the cloud template `vcfguide-team-folder` from recipe 8.7, and a deployment of it, such as `team blue`, whose VM has the custom property `vcfguideRole` (add `vcfguideRole: web` to the machine's properties, as in recipe 8.5). The subscriptions from recipe 8.5 then name and tag that VM too, which does no harm here.
+- The test user from recipe 8.6, a member of the project `vcfguide` but not an administrator.
+
+</Recipe>
+
+<Recipe type="how">
+
+**A snapshot action for vSphere machines**
+
+1. In the VM Apps organization, go to **Design** > **Resource Actions** and click **New Resource Action**. Enter:
+
+| Field | Value |
+|---|---|
+| **Name** | `vcfguide_take_snapshot`, the name in the resource actions list |
+| **Display name** | `Take a snapshot`, the label in the **Actions** menu |
+| **Description** | `Snapshot this VM with Orchestrator, without memory` |
+| **Activate** | on |
+| **Resource type** | `Cloud.vSphere.Machine` |
+| **Workflow** | **Snapshot a VM**, from the integration `vco01` |
+
+Use the type the resource has once it's deployed, `Cloud.vSphere.Machine`, not the cloud-agnostic `Cloud.Machine`. An action applies to exactly one resource type.
+
+2. The **Property Binding** pane lists the workflow's inputs, `vm` and `snapshotName`. Select `vm`, set **Binding** to **with binding action**, and check that VCF Automation has picked the action `findVcVmByVcAndVmUuid`. Click **Save**. Leave `snapshotName` **in request**, so the user types it.
+3. Turn on **Requires condition** and enter the key `${properties.vcfguideRole}`, the operator `equals`, and the value `web`. The action now appears only on machines built with the role `web`.
+4. Click **Create**.
+
+<Figure n="8.21" caption="A resource action that runs an Orchestrator workflow on vSphere machines."
+  capture="VM Apps organization, <b>Design > Resource Actions</b>, <code>vcfguide_take_snapshot</code> open: display name <b>Take a snapshot</b>, <b>Activate</b> on, resource type <code>Cloud.vSphere.Machine</code>, workflow <b>Snapshot a VM</b> on <code>vco01</code>; <b>Property Binding</b> pane with <code>vm</code> bound <b>with binding action</b> <code>findVcVmByVcAndVmUuid</code>, <code>snapshotName</code> <b>in request</b>; <b>Requires condition</b> with <code>${properties.vcfguideRole}</code> equals <code>web</code>." />
+
+<Verify>On VCF Automation 9.1 (VM Apps organization), confirm the field labels in steps 1 to 3 (they match the 9.0 TechDocs vMotion example), that <code>findVcVmByVcAndVmUuid</code> is chosen by itself for a <code>VC:VirtualMachine</code> input, the list of condition operators, and that a custom property such as <code>vcfguideRole</code> can be used in a condition as <code>{"${properties.vcfguideRole}"}</code>.</Verify>
+
+5. Select the action in the list and click **Edit Request Parameters**. Select `snapshotName`, set the label to `Snapshot name`, the default to `before-change`, make it required, and on **Constraints** set the regular expression `^[A-Za-z0-9._-]{1,40}$`. Click **Save**.
+
+**An action on the custom resource**
+
+6. In Orchestrator, create the workflow **Rename a VM folder** in **VCF Orchestrator Guide/Chapter 8**, with the inputs `folder` (`VC:VmFolder`) and `newName` (`string`), and the output `renamed` (`VC:VmFolder`). Add one scriptable task, with both inputs in and `renamed` out:
+
+```javascript title="Rename a VM folder — Rename it"
+if (!/^vcfguide-[a-z0-9-]{1,20}$/.test(newName)) {
+    throw "Use vcfguide- followed by up to 20 lower-case letters, digits or hyphens, not " + newName;
+}
+var oldName = folder.name;
+var chapter8 = System.getModule("com.vcfguide.chapter8");
+if (chapter8.findChildVmFolder(folder.parent, newName)) {
+    throw "A folder called " + newName + " already exists next to " + oldName;
+}
+var task = folder.rename_Task(newName);
+chapter8.waitForTask(task, 120);
+renamed = folder;
+System.log("Renamed VM folder " + oldName + " to " + newName);
+```
+
+7. Run it once from the Orchestrator Client on a test folder, then start a data collection on the integration `vco01` so VCF Automation sees the new workflow.
+8. In VCF Automation, go to **Design** > **Custom Resources** and open **VCF Guide VM folder**. Under **Additional Actions**, click **Add**. Enter the **Name** `vcfguide_rename_folder`, the **Display name** `Rename folder`, and select the workflow **Rename a VM folder** from `vco01`. Its `folder` input has the resource's external type, so VCF Automation passes the folder resource to it. Leave `newName` in the request, and click **Save**.
+
+<Verify>On VCF Automation 9.1, record where a custom resource's own day 2 actions are added (8.x: <b>Additional Actions</b> in the custom resource editor), whether the input of the external type is bound by itself, whether the workflow must also return the external type, and whether the folder resource's properties show the new name after the action or only after the next refresh.</Verify>
+
+**Decide who can run them**
+
+9. Go to **Content & Policies** > **Policies**, click **New Policy**, and choose **Day 2 Actions**. Enter:
+
+| Field | Value |
+|---|---|
+| **Name** | `vcfguide day 2` |
+| **Scope** | the project `vcfguide` |
+| **Enforcement type** | **Hard** |
+| **Role** | **Member** |
+| **Actions** | **Take a snapshot**, **Rename folder**, and every built-in action members should keep, such as power off, power on, and delete |
+
+10. Click **Create**.
+
+<Figure n="8.22" caption="A day 2 actions policy that gives project members the two new actions."
+  capture="VM Apps organization, <b>Content & Policies > Policies</b>, day 2 actions policy <code>vcfguide day 2</code>: scope project <code>vcfguide</code>, enforcement <b>Hard</b>, role <b>Member</b>, actions list with <b>Take a snapshot</b> and <b>Rename folder</b> selected next to built-in power and delete actions." />
+
+<Verify>On VCF Automation 9.1, record the policy type's name (<b>Day 2 Actions</b>), how custom resource actions are listed in it (by display name, or by a name such as <code>Custom.vcfguide.VmFolder.custom.vcfguide_rename_folder</code>), and whether project members lose the built-in actions once the first day 2 actions policy exists, as they do in 8.x.</Verify>
+
+**Run them as a user**
+
+11. Log in as the test user and go to **Consume** > **Deployments**. Open `team blue` and select the machine. Click **Actions** in the right pane. **Take a snapshot** is in the list. Click it, keep `before-change`, and click **Submit**.
+12. The deployment's **History** shows the action **In progress**, then **Successful**. On `vco01`, **Activity** > **Workflow Runs** shows a run of **Snapshot a VM** whose `vm` is the VM of `team blue`. Its snapshot manager in the vSphere Client shows `before-change`.
+13. Select the folder resource in the same deployment and run **Rename folder** with `vcfguide-blue-2`. The run of **Rename a VM folder** completes, and the folder has its new name in vCenter, with the VM still in it.
+14. Change the machine's `vcfguideRole` to `app` in the template and deploy it again with another team name. The new machine's **Actions** list has no **Take a snapshot**, because the condition doesn't match.
+
+<Figure n="8.23" caption="The custom actions in a project member's deployment."
+  capture="As the test user, deployment <code>team blue</code> with the machine selected, <b>Actions</b> menu open showing <b>Take a snapshot</b> next to built-in actions; the request form with <b>Snapshot name</b> = <code>before-change</code>; inset the deployment <b>History</b> with the action <b>Successful</b>." />
+
+<Verify>Walk steps 11 to 14 on VCF Automation 9.1 and Orchestrator 9.1.1. Record the menu names, whether the action's run on <code>vco01</code> is started by the integration's account, whether <code>__metadata_userName</code> is set for day 2 actions, and whether a rename leaves the VM's <code>folderName</code> property in VCF Automation pointing at the old path.</Verify>
+
+15. Clean up: remove the snapshot, then delete the deployments.
+
+</Recipe>
+
+<Recipe type="works">
+
+**Binding: from a resource to an Orchestrator object.** VCF Automation knows a machine by its own resource ID, its vCenter, and its UUID. Orchestrator wants a `VC:VirtualMachine`. A **binding action** turns one into the other. When the user runs the action, VCF Automation calls `findVcVmByVcAndVmUuid` with the machine's vCenter and instance UUID, gets the VM object back, and passes it to the workflow's `vm` input. The other two kinds of binding are **in request**, where the user fills the value in, and **direct**, where a primitive input is taken from one of the resource's properties. For a custom resource no binding action is needed: VCF Automation already holds the object that the create workflow returned, and gives it back to any action whose input has that type.
+
+**Conditions keep menus short.** A resource action with no condition appears on every resource of its type in the organization's deployments that the user is entitled to. A condition is evaluated against the resource's properties before the menu is drawn, so actions that make no sense, such as a snapshot on a VM that your backup tool owns, simply aren't offered.
+
+**Policies decide who.** Defining an action makes it exist. A **day 2 actions policy** decides who may run it, in which projects. The policy is a list of what's allowed: once one exists, anything not in it is hidden from the users it covers. That's why step 9 adds the built-in actions too. Administrators keep their actions, and a **Soft** policy can be overridden by another one, for example to give one team an extra action.
+
+**The workflow does the work, and checks again.** The request form validates `snapshotName`, but a request can also arrive through the API, so **Rename a VM folder** checks its input again, just like **Order a VM** in recipe 8.6.
+
+<ThenNow
+  then="In vRealize Automation 7, create an XaaS resource action on the <code>VC:VirtualMachine</code> type with the vRA plug-in's mapping, publish it, and add it to an entitlement."
+  now="Create the action under <b>Design</b> > <b>Resource Actions</b> on <code>Cloud.vSphere.Machine</code>, bind the VM with <code>findVcVmByVcAndVmUuid</code>, and entitle it with a day 2 actions policy." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**Actions disappear after the upgrade to 9.1.** Broadcom KB 453195 describes custom resource actions that stop appearing in deployments after an upgrade from 9.0 to 9.1, while the design pages and the policies still look right. The link between each action and its workflow was lost. The fix is to open every affected action under **Design** > **Custom Resource Actions**, select its workflow again, and save it. Keep a list of your resource actions and their workflows, so you can do that quickly.
+
+**A drop-down from Orchestrator.** On **Edit Request Parameters**, a field's values can come from an Orchestrator action, as in the custom forms of recipe 8.6. For a snapshot action, a field with the VM's existing snapshots would let a second action, **Revert to snapshot**, offer only snapshots that exist.
+
+**Validation before the request.** Add an Orchestrator validation to the request form, with an action that returns an error message or nothing. `checkVmName` from recipe 8.6 is the pattern: a rename that collides is refused while the user types, not after the workflow has started.
+
+**Actions on the whole deployment.** Resource actions can also target the deployment type rather than one resource, for work such as a backup of every VM in it, or a ticket for the whole application. The workflow then gets the deployment's ID and reads its resources through the VCF Automation API.
+
+**Ask for approval.** An approval policy can cover a day 2 action as well as a catalog request, so a **Take a snapshot** on a production project can wait for a team lead. Recipe 8.3 explains when approvals belong in VCF Automation and when in a workflow.
+
+</Recipe>
+
+<Recipe type="see">
+
+- [8.1 Workflows against vCenter](../01-vcenter-workflows/), for **Snapshot a VM** and `waitForTask`.
+- [8.6 Workflows as catalog items](../06-workflows-as-catalog-items/), for request forms and external validation.
+- [8.7 Custom resources](../07-custom-resources/), for the VM folder resource.
+- Broadcom TechDocs (VCF 9.0): [How to create a VCF Automation resource action to vMotion a virtual machine](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/organization-management/vcfa-overview/working-with-the-vcf-automation-catalog/maphead-designing-your-deployments/maphead-day-2/custom-actions-vmotion-replacement.html).
+- VMware docs (Aria Automation 8.13): [How to create a resource action to vMotion a virtual machine](https://docs.vmware.com/en/VMware-Aria-Automation/8.13/Using-Automation-Assembler/GUID-D741565F-D16A-49E1-A248-E2B837E19E5C.html), for the three kinds of binding; (vRealize Automation 8.11) [How do I entitle deployment users to day 2 actions](https://docs.vmware.com/en/vRealize-Automation/8.11/Using-and-Managing-Service-Broker/GUID-AB957C4B-7D0F-4E43-9CAE-A86FFF4331EE.html).
+- Broadcom KB [453195](https://knowledge.broadcom.com/external/article/453195/custom-resource-actions-disappear-from-d.html): custom resource actions missing after the upgrade to 9.1.
+
+</Recipe>
