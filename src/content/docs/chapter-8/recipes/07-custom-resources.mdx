@@ -1,0 +1,210 @@
+---
+title: Custom resources
+description: Recipe 8.7 — turn something Orchestrator can build into a resource that VCF Automation manages. Write create and destroy workflows for a vCenter VM folder, define the custom resource type, use it in a cloud template next to a VM, and watch VCF Automation create and delete it with the deployment.
+sidebar:
+  label: 8.7 Custom resources
+  order: 7
+---
+import Recipe from '../../../../components/Recipe.astro';
+import Figure from '../../../../components/Figure.astro';
+import ThenNow from '../../../../components/ThenNow.astro';
+import Verify from '../../../../components/Verify.astro';
+
+Recipe 8.6 ended with a gap. A workflow ordered from the catalog runs, builds its VM, and leaves behind a deployment that knows nothing about what was built. Nobody can delete it from VCF Automation, and there are no actions on it. A **custom resource** closes that gap. It's a resource type of your own, such as `Custom.vcfguide.VmFolder`, that you can drag into a cloud template like a machine or a network. VCF Automation creates it by running one Orchestrator workflow, deletes it by running another, and keeps it in the deployment in between, with its properties and its own actions.
+
+This recipe makes a VM folder in vCenter into a custom resource. A folder is small, safe to create and delete in a lab, and shows the whole life cycle. You write the two workflows, define the type, and build a cloud template that creates a folder for a team and puts the team's VM in it. Deleting the deployment deletes both, in the right order.
+
+<Recipe type="ready">
+
+- The VM Apps organization, the project `vcfguide`, and the Orchestrator integration `vco01` from recipe 8.5.
+- The configuration element `vcfguide-ch8-catalog` from recipe 8.6. Its `folder` variable, the `vcfguide` VM folder, is the parent of every folder this recipe creates.
+- The action `waitForTask` from recipe 8.1.
+- An image and flavor mapping in the project for a small Linux VM, as used by `vcfguide-small-vm` in recipe 8.5.
+
+</Recipe>
+
+<Recipe type="how">
+
+**Write the create and destroy workflows**
+
+1. Create the action `findChildVmFolder` in `com.vcfguide.chapter8`, with the inputs `parent` (`VC:VmFolder`) and `folderName` (`string`), and the return type `VC:VmFolder`. It returns the folder with that name directly under `parent`, or `null`:
+
+```javascript title="com.vcfguide.chapter8/findChildVmFolder"
+if (!parent || !folderName) {
+    throw "findChildVmFolder: parent and folderName are both needed";
+}
+if (folderName.indexOf("'") >= 0) {
+    throw "findChildVmFolder: names with an apostrophe aren't supported: " + folderName;
+}
+
+var folders = VcPlugin.getAllVmFolders(null, "xpath:name='" + folderName + "'");
+for (var i = 0; i < folders.length; i++) {
+    var f = folders[i];
+    // Same vCenter, and directly under the parent we were given
+    if (f.sdkConnection.id === parent.sdkConnection.id &&
+        f.parent && f.parent.id === parent.id) {
+        return f;
+    }
+}
+return null;
+```
+
+<Verify>On 9.1.1, confirm that <code>VcPlugin.getAllVmFolders(null, "xpath:name='…'")</code> exists and filters by name, that a VM folder's <code>parent</code> returns the parent folder with an <code>id</code> such as <code>group-v123</code>, and how long a folder created with <code>createFolder()</code> takes to be returned by this search (KB 438935, cited in recipe 8.1, describes searches that lag behind vCenter).</Verify>
+
+2. Create the workflow **Create a VM folder** in **VCF Orchestrator Guide/Chapter 8**. Give it one input, `folderName` (`string`), and one output, `folder` (`VC:VmFolder`). On **Variables**, add `parent` (`VC:VmFolder`) bound to the variable `folder` in `vcfguide-ch8-catalog`, as in recipe 4.7.
+3. Add one scriptable task, with `folderName` and `parent` in and `folder` out:
+
+```javascript title="Create a VM folder — Create it"
+if (!/^vcfguide-[a-z0-9-]{1,20}$/.test(folderName)) {
+    throw "Use vcfguide- followed by up to 20 lower-case letters, digits or hyphens, not " + folderName;
+}
+var chapter8 = System.getModule("com.vcfguide.chapter8");
+if (chapter8.findChildVmFolder(parent, folderName)) {
+    throw "A folder called " + folderName + " already exists in " + parent.name;
+}
+
+parent.createFolder(folderName);
+
+// The plug-in's inventory can be a moment behind vCenter
+folder = null;
+for (var tries = 0; tries < 10 && !folder; tries++) {
+    folder = chapter8.findChildVmFolder(parent, folderName);
+    if (!folder) {
+        System.sleep(2000);
+    }
+}
+if (!folder) {
+    throw "vCenter created " + folderName + " but it didn't appear in the inventory";
+}
+System.log("Created VM folder " + folderName + " (" + folder.id + ") in " + parent.name);
+```
+
+4. Create the workflow **Delete a VM folder** in the same folder, with one input, `folder` (`VC:VmFolder`), and no outputs. Add one scriptable task with `folder` in:
+
+```javascript title="Delete a VM folder — Delete it"
+var name = folder.name;
+var children = folder.childEntity || [];
+// Destroy_Task on a folder also deletes every VM in it. Refuse instead.
+if (children.length > 0) {
+    throw "Folder " + name + " isn't empty (" + children.length +
+          " items). Move or delete them first.";
+}
+var task = folder.destroy_Task();
+System.getModule("com.vcfguide.chapter8").waitForTask(task, 120);
+System.log("Deleted VM folder " + name);
+```
+
+5. Run **Create a VM folder** from the Orchestrator Client with `vcfguide-try`. The folder appears under `vcfguide` in the vSphere Client. Run **Delete a VM folder** on it, and it's gone. Both workflows work on their own before VCF Automation calls them, which is the order to test in.
+
+<Figure n="8.18" caption="The create workflow, tested in Orchestrator before VCF Automation uses it."
+  capture="Completed run of <b>Create a VM folder</b>: <b>Variables</b> tab with input <code>folderName</code> = <code>vcfguide-try</code>, variable <code>parent</code> = <code>vcfguide</code>, output <code>folder</code> (a <code>VC:VmFolder</code>); <b>Logs</b> tab with <i>Created VM folder vcfguide-try (group-v…) in vcfguide</i>; beside it the vSphere Client <b>VMs and Templates</b> tree with the new folder." />
+
+**Define the custom resource**
+
+6. In the VM Apps organization, go to **Design** > **Custom Resources** and click **New Custom Resource**. Enter:
+
+| Field | Value |
+|---|---|
+| **Name** | `VCF Guide VM folder`, the name shown in the cloud template palette |
+| **Description** | `A vCenter VM folder under vcfguide, created and deleted by Orchestrator` |
+| **Resource type** | `Custom.vcfguide.VmFolder` |
+| **Activate** | on |
+| **Scope** | the project `vcfguide` only |
+| **Based on** | the Orchestrator inventory |
+
+7. Under **Lifecycle Actions**, set **Create** to **Create a VM folder**, from the integration `vco01`. When you select it, the **External type** list appears below it. Pick `VC:VmFolder`, the type of the workflow's output.
+8. Set **Destroy** to **Delete a VM folder**. Leave **Update** empty: this resource can't be changed once it's built, only replaced.
+9. Open the **Properties** tab. VCF Automation has read the create workflow's input and shows `folderName` as a property. Give it the title `Folder name` and click **Create**.
+
+<Figure n="8.19" caption="A custom resource type based on the Orchestrator inventory."
+  capture="VM Apps organization, <b>Design > Custom Resources</b>, <code>VCF Guide VM folder</code> open: resource type <code>Custom.vcfguide.VmFolder</code>, <b>Activate</b> on, scope project <code>vcfguide</code>, based on the Orchestrator inventory; <b>Lifecycle Actions</b> with <b>Create</b> = <b>Create a VM folder</b> (<code>vco01</code>), <b>External type</b> = <code>VC:VmFolder</code>, <b>Destroy</b> = <b>Delete a VM folder</b>." />
+
+<Verify>On VCF Automation 9.1 (VM Apps organization), record the exact menu path and button (<b>Design</b> > <b>Custom Resources</b>, <b>New Custom Resource</b>; KB 453195 confirms a <b>Design</b> > <b>Custom Resource Actions</b> page in 9.1), the label of the <b>Based on</b> choice for Orchestrator (8.x: <b>vRO inventory</b>), the scope choices, and whether the <b>Properties</b> tab lists <code>folderName</code> by itself.</Verify>
+
+**Use it in a cloud template**
+
+10. In the project `vcfguide`, create the cloud template `vcfguide-team-folder`. **VCF Guide VM folder** is now in the palette under **Custom Resources**. Drag it onto the canvas next to a machine, or paste the YAML and change the image and flavor names to yours:
+
+```yaml title="Cloud template vcfguide-team-folder"
+formatVersion: 1
+inputs:
+  team:
+    type: string
+    title: Team
+    pattern: '^[a-z0-9-]{1,12}$'
+resources:
+  folder:
+    type: Custom.vcfguide.VmFolder
+    properties:
+      folderName: vcfguide-${input.team}
+  vm:
+    type: Cloud.vSphere.Machine
+    properties:
+      image: vcfguide-linux
+      flavor: small
+      folderName: ${'vcfguide/' + resource.folder.name}
+      networks:
+        - network: ${resource.net.id}
+  net:
+    type: Cloud.vSphere.Network
+    properties:
+      networkType: existing
+```
+
+The machine's `folderName` is a property of `Cloud.vSphere.Machine`, a folder path relative to the data center. Because it refers to `resource.folder`, VCF Automation draws a line from the VM to the folder on the canvas and builds the folder first.
+
+11. Click **Deploy**, name the deployment `team blue`, and enter the team `blue`. The deployment's topology shows three resources. The folder resource is created first: on `vco01`, **Activity** > **Workflow Runs** shows a run of **Create a VM folder** with `folderName` = `vcfguide-blue`. Then the VM is built inside it.
+12. Open the deployment and select the folder resource. Its properties come from the `VC:VmFolder` object that the workflow returned: its name, its ID, and the `folderName` you passed in.
+
+<Figure n="8.20" caption="A deployment with a custom resource next to the VM it holds."
+  capture="VM Apps organization, deployment <code>team blue</code>, <b>Topology</b>: folder resource of type <code>Custom.vcfguide.VmFolder</code> linked to the machine and the network; right pane of the folder resource with its properties (name <code>vcfguide-blue</code>, ID); inset vSphere Client with the VM inside <code>vcfguide/vcfguide-blue</code>." />
+
+<Verify>Deploy <code>vcfguide-team-folder</code> on VCF Automation 9.1 and record: whether the expression <code>{"${'vcfguide/' + resource.folder.name}"}</code> resolves (the folder resource exposes <code>name</code>) and puts the VM in the new folder, the property names the folder resource shows, and which account the run on <code>vco01</code> uses.</Verify>
+
+**Delete it**
+
+13. In **Consume** > **Deployments**, open the menu of `team blue` and click **Delete**. VCF Automation deletes the VM first, because it depends on the folder, and then runs **Delete a VM folder** on the now empty folder. Both disappear from vCenter.
+14. Now try the safety check. Create the folder by hand in the vSphere Client, run **Create a VM folder** on the name `vcfguide-blue` and see it refuse, then delete that folder. Or put any VM in a folder that a deployment owns and delete the deployment: the destroy run fails with *isn't empty*, the deployment shows the failure, and nothing in the folder is lost.
+
+</Recipe>
+
+<Recipe type="works">
+
+**A resource type made of workflows.** A custom resource is a contract. VCF Automation knows the type name, the properties it takes, and three lifecycle workflows: create, update, and destroy. It doesn't know what a VM folder is. When a deployment needs one, it runs the create workflow with the resource's properties as inputs and stores what comes back. When the deployment is deleted, it runs the destroy workflow with that stored object. Everything in between, such as the topology, the history, and the actions menu, works as it does for machines.
+
+**The external type ties it together.** The create workflow must return one SDK object, a plug-in type with a colon such as `VC:VmFolder` or `AD:User`. Primitive types like `string` or `Properties` aren't allowed, because VCF Automation needs an object it can hand back to Orchestrator later. That object's type is the custom resource's **external type**. The destroy workflow takes one input of the same type, and an update workflow takes and returns one. Within one scope, only one custom resource can use a given external type, so if a second team needs folders with other rules, give their resource a different project scope.
+
+**Inputs become properties.** VCF Automation reads the create workflow's inputs to build the resource's schema. Rename an input, or add one, and you need to open the custom resource and save it again so the schema follows. The properties the deployment shows afterwards come from the object, read through the plug-in.
+
+**Destroy must be safe.** `Destroy_Task` on a vCenter folder deletes its VMs with it. The deployment's dependency order already deletes the VM first, but the destroy workflow can't trust that every caller does. A destroy workflow should delete only what its create workflow made, and stop with a clear error otherwise. A failed destroy leaves the deployment in a failed state, which is better than a lost VM.
+
+<ThenNow
+  then="In vRealize Automation 7, make an XaaS custom resource that maps an Orchestrator inventory type, then an XaaS blueprint with a provisioning workflow, and a resource action for the delete."
+  now="One custom resource under <b>Design</b> > <b>Custom Resources</b>, based on the Orchestrator inventory, with create, update and destroy workflows, used in cloud templates like any other resource." />
+
+</Recipe>
+
+<Recipe type="more">
+
+**An update workflow.** Add an **Update** workflow when a property can change in place, for example the folder's name. It must take the external type as an input and return it as an output. VCF Automation runs it when someone changes the property in an iterative deployment update. Properties that can't change in place should be marked so that VCF Automation recreates the resource instead.
+
+**Day 2 actions on the resource.** A custom resource can carry actions of its own, such as renaming the folder or listing its VMs, which users run from the deployment. Recipe 8.8 adds one, and shows the policy that decides who sees it.
+
+**Custom resources from extensibility actions.** Instead of the Orchestrator inventory, a custom resource can be based on extensibility actions, short scripts that VCF Automation runs itself. Those need a read action that returns every property, and the schema has to be written by hand. Orchestrator-based resources get their schema from the workflow and their state from the plug-in, which suits anything a plug-in already knows: vCenter objects, AD users, SSH hosts.
+
+**Plug-ins without inventory.** NSX in recipe 8.4 is reached through the HTTP-REST plug-in, which has no `NSX:Segment` type. To make a segment a custom resource, give it a type with the Dynamic Types plug-in, and create its objects in workflows with `DynamicTypesManager.getObject()`, as the 8.x documentation recommends.
+
+**Test the workflows alone.** VCF Automation shows a failed create only as a failed deployment, with the error text from the workflow. Test each lifecycle workflow from the Orchestrator Client first, and write error messages that make sense to the person who ordered the deployment.
+
+</Recipe>
+
+<Recipe type="see">
+
+- [8.1 Workflows against vCenter](../01-vcenter-workflows/), for `waitForTask` and XPath searches.
+- [8.6 Workflows as catalog items](../06-workflows-as-catalog-items/), for `vcfguide-ch8-catalog` and why a workflow item has no day 2 actions.
+- [8.8 Resource actions](../08-resource-actions/), for actions on this resource and on machines.
+- Broadcom TechDocs (VCF 9.0): [Custom resource types for cloud templates in VCF Automation for VM Apps](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/organization-management/vcfa-overview/working-with-the-vcf-automation-catalog/maphead-designing-your-deployments/maphead-custom-resources.html) and [Managing custom resources in VCF Automation blueprints](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/organization-management/custom-resources-in-vcfa-blueprints.html) (All Apps).
+- VMware docs (Aria Automation 8.12), the model VM Apps organizations follow: [Custom resource types for cloud templates](https://docs.vmware.com/en/VMware-Aria-Automation/8.12/Using-Automation-Assembler/GUID-9722DEAD-CDCC-4E66-8357-A17B0E0CF783.html), and (8.18) [Create an Active Directory user custom resource](https://docs.vmware.com/en/VMware-Aria-Automation/8.18/Using-Automation-Assembler/GUID-2CF12D6B-048B-4C62-9531-336A6618C352.html).
+- Broadcom KB [453195](https://knowledge.broadcom.com/external/article/453195/custom-resource-actions-disappear-from-d.html): custom resource actions missing after the upgrade to 9.1.
+
+</Recipe>
