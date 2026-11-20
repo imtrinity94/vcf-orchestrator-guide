@@ -171,7 +171,7 @@ If the handler never calls the callback, Orchestrator has no way to know the wor
 
 **Packages.** `require("dns")` loads a module built into Node.js, so `resolveHostNames` needs no environment. `require("semver")` loads a package from npm, which only exists in a runtime that has it, so `checkMinimumVersion` must run in an environment that lists `semver` as a dependency. Node.js environments use a single npm repository: the public registry, or one mirror. Python and PowerShell can use several.
 
-**Limits.** The defaults for Node.js are the same as for Python: 64 MB of memory and 180 seconds per run. A package with many dependencies of its own can need more memory just to load. Raise the **Memory limit** on the action's **Script** tab, or on the environment's **Definitions** tab for every action that uses it.
+**Limits.** The defaults for Node.js are the same as for Python: 64 MB of memory and 180 seconds per run. A package with many dependencies of its own can need more memory just to load. Raise the **Memory limit** on the action's **Script** tab, or on the environment's **Definition** tab for every action that uses it.
 
 <ThenNow
   then="Run Node.js scripts on another machine, through the SSH plug-in, and read their output back as text."

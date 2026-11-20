@@ -142,7 +142,7 @@ The JSON trip decides what you can pass:
 - **Plug-in objects don't cross.** A Python action can't take a `VC:VirtualMachine` and call its methods, because the object lives in the Java process and the script doesn't. Pass the VM's name or ID as a string, and do the vSphere work in JavaScript or through the vCenter API from Python.
 - **`context`** carries details of the call. The 9.x documentation names `vroURL`, the address of the Orchestrator server, and `executionId`, the ID of the run.
 
-Each runtime has limits per run. The defaults are 64 MB of memory and 180 seconds for Python and Node.js, and 150 MB and 180 seconds for PowerShell and PowerCLI. A run that goes over either limit fails. Change them on the action's **Script** tab, or for every action that uses an environment, on the environment's **Definitions** tab.
+Each runtime has limits per run. The defaults are 64 MB of memory and 180 seconds for Python and Node.js, and 150 MB and 180 seconds for PowerShell and PowerCLI. A run that goes over either limit fails. Change them on the action's **Script** tab, or for every action that uses an environment, on the environment's **Definition** tab.
 
 An **environment** is a runtime plus the packages and environment variables your scripts need. Orchestrator downloads the packages once, when you create or change the environment, and every action that uses it gets them. Packages come only from the repositories allowed under **Environment Repositories**: PyPI for Python, npm for Node.js, and the PowerShell Gallery or another NuGet v2 feed for PowerShell. In VCF 9 the public repositories are off until an administrator turns them on.
 
