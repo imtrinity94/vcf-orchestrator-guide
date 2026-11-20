@@ -61,12 +61,24 @@ for (var i = 0; i < tests.length; i++) {
 return result;
 ```
 
-4. Click **Run**, then **Run** again in the dialog. The action has no inputs, so it starts at once. Open the **Logs** tab: each feature has a `yes` line or a `no` warning with the error the engine gave. The result shows the same answers as a `Properties` object.
+4. Click **Run**. The action has no inputs, so it starts at once, with no dialog. Open the **Logs** tab under the script: each feature has a `yes` line or a `no` warning with the error the engine gave. The result shows the same answers as a `Properties` object.
 
-<Figure n="4.1" caption="The probe's log on Orchestrator 9.1.1: one line per feature."
-  capture="Run of action <code>com.vcfguide.chapter4/probeLanguage</code>, <b>Logs</b> tab, with a mix of <i>yes</i> info lines and <i>no</i> warning lines, one per feature tested." />
+<Figure n="4.1" caption="The probe's log on Orchestrator 9.1.1: one line per feature. Only spread and class fail."
+  src="screenshots/ch04/fig-4-1.png"
+  alt="The probeLanguage action in the Orchestrator Client after a run. The Logs pane lists one INFO line per feature that compiled and two WARNING lines, for spread and class, with the SyntaxError each one raised." />
 
-<Verify>Run <code>probeLanguage</code> on 9.1.1 and record the yes/no result for every feature in the table under <b>How it works</b>. Confirm that <code>eval</code> is allowed in Orchestrator scripts, and that the action run dialog and <b>Logs</b> tab look as described.</Verify>
+On Orchestrator 9.1.1 (build 25643527) the probe returns:
+
+| Feature | 9.1.1 |
+|---|---|
+| `let`, `const` | yes |
+| Arrow functions, template literals | yes |
+| Default parameters, `for...of`, destructuring | yes |
+| `Array.prototype.includes`, `Object.assign`, `String.prototype.padStart` | yes |
+| Spread (`...`) | no: `SyntaxError: syntax error` |
+| `class` | no: `SyntaxError: identifier is a reserved word: class` |
+
+The **Run** button runs an action with no inputs straight away, without a dialog. The editor then shows **Result / Inputs** and **Logs** tabs under the script, and a **Completed** badge next to the action's name.
 
 **Look things up in the API Explorer**
 

@@ -28,7 +28,7 @@ In this recipe you write a small Python action with no extra packages, then buil
 **Write a first Python action**
 
 1. In **Library** > **Actions**, create the action `splitHostName` in the module `com.vcfguide.chapter4`.
-2. On the **Script** tab, set the **Runtime** to **Python 3.10**. Add one input, `fqdn`, of type `string`, and set the **Return type** to `Properties`. Leave **Memory limit** and **Timeout** at their defaults.
+2. On the **Script** tab, set the **Runtime** to **Python 3.14**. Add one input, `fqdn`, of type `string`, and set the **Return type** to `Properties`. Leave **Memory limit** and **Timeout** at their defaults.
 3. Replace the sample code with this script and click **Save**:
 
 ```python title="com.vcfguide.chapter4/splitHostName"
@@ -43,9 +43,9 @@ def handler(context, inputs):
 4. Run it with `fqdn` = `vc01.vmw.lab`. The result is `host` = `vc01` and `domain` = `vmw.lab`, and the log shows the line printed by `print`. The first run takes a few seconds longer than a JavaScript action, while Orchestrator starts the Python runtime.
 
 <Figure n="4.6" caption="A Python action: the runtime, the typed inputs and return type, and the handler function."
-  capture="<b>Script</b> tab of action <code>com.vcfguide.chapter4/splitHostName</code>: <b>Runtime</b> = <b>Python 3.10</b>, input <code>fqdn</code> (<code>string</code>), <b>Return type</b> <code>Properties</code>, <b>Memory limit</b> and <b>Timeout</b> at their defaults, and the <code>handler</code> function in the editor." />
+  capture="<b>Script</b> tab of action <code>com.vcfguide.chapter4/splitHostName</code>: <b>Runtime</b> = <b>Python 3.14</b>, input <code>fqdn</code> (<code>string</code>), <b>Return type</b> <code>Properties</code>, <b>Memory limit</b> and <b>Timeout</b> at their defaults, and the <code>handler</code> function in the editor." />
 
-<Verify>On 9.1.1, confirm the label <b>Runtime</b> and that it offers <b>Python 3.10</b>, the labels <b>Memory limit</b> and <b>Timeout</b>, the sample code the editor fills in for a new Python action, and the keys of <code>context</code> (the 9.x docs name <code>vroURL</code> and <code>executionId</code>).</Verify>
+<Verify>On 9.1.1, confirm the label <b>Runtime</b> and that it offers <b>Python 3.14</b>, the labels <b>Memory limit</b> and <b>Timeout</b>, the sample code the editor fills in for a new Python action, and the keys of <code>context</code> (the 9.x docs name <code>vroURL</code> and <code>executionId</code>).</Verify>
 
 **Allow a package repository**
 
@@ -60,8 +60,8 @@ def handler(context, inputs):
 **Build an environment**
 
 7. Go to **Assets** > **Environments** and click **New Environment**.
-8. On the **General** tab, enter the name `vcfguide-python-crypto` and the description `Python 3.10 with cryptography, for the VCF Orchestrator Guide.`
-9. On the **Definitions** tab, set the **Runtime** to **Python 3.10**. Under **Dependencies**, click **Add** and enter:
+8. On the **General** tab, enter the name `vcfguide-python-crypto` and the description `Python 3.14 with cryptography, for the VCF Orchestrator Guide.`
+9. On the **Definitions** tab, set the **Runtime** to **Python 3.14**. Under **Dependencies**, click **Add** and enter:
    - **Name**: `cryptography`
    - **Version**: `43.0.3`
    - **Repository**: the default, or your mirror
@@ -70,11 +70,11 @@ def handler(context, inputs):
 <Figure n="4.8" caption="An environment with one Python dependency, after a successful build."
   capture="Environment <code>vcfguide-python-crypto</code>, <b>Download Logs</b> tab, showing pip installing <code>cryptography-43.0.3</code> and its dependency <code>cffi</code>, ending without errors." />
 
-<Verify>Walk steps 5–10 on 9.1.1: the menu path to <b>Environment Repositories</b>, the names <b>Default Public Repositories</b> and <b>Manage Repositories</b>, the <b>General</b>, <b>Definitions</b>, and <b>Download Logs</b> tabs, and that <code>cryptography</code> 43.0.3 installs as a ready-built wheel in the Python 3.10 runtime.</Verify>
+<Verify>Walk steps 5–10 on 9.1.1: the menu path to <b>Environment Repositories</b>, the names <b>Default Public Repositories</b> and <b>Manage Repositories</b>, the <b>General</b>, <b>Definitions</b>, and <b>Download Logs</b> tabs, and that <code>cryptography</code> 43.0.3 installs as a ready-built wheel in the Python 3.14 runtime.</Verify>
 
 **Use the environment from an action**
 
-11. Create the action `getCertificateExpiry` in `com.vcfguide.chapter4`. On the **Script** tab, set the **Runtime** to the environment `vcfguide-python-crypto` instead of plain Python 3.10.
+11. Create the action `getCertificateExpiry` in `com.vcfguide.chapter4`. On the **Script** tab, set the **Runtime** to the environment `vcfguide-python-crypto` instead of plain Python 3.14.
 12. Add the inputs `hostName` of type `string` and `port` of type `number`, and set the **Return type** to `Properties`. Enter this script:
 
 ```python title="com.vcfguide.chapter4/getCertificateExpiry"
@@ -147,9 +147,9 @@ An **environment** is a runtime plus the packages and environment variables your
 
 <ThenNow
   then="Write every script in JavaScript. To use Python or PowerShell, run it on another host through the SSH or PowerShell plug-in, or start a local process after allowing it with a system property."
-  now="Choose Python 3.10, Node.js 22, PowerShell 7.4, or PowerCLI 13 (on PowerShell 7.4) as the runtime of an action or scriptable task, and add packages with an environment." />
+  now="Choose Python 3.14, Node.js 24, PowerShell 7.6, or PowerCLI 9.1.1 (on PowerShell 7.6) as the runtime of an action or scriptable task, and add packages with an environment." />
 
-<Verify>Confirm the runtime versions on 9.1.1. Broadcom's 9.0 and 9.1 pages on scripting environments list Node.js 22, but the 9.1 core concepts page still says Node.js 20. The REST call <code>GET /vco/api/server-configuration/polyglot-runtimes</code> lists what the server offers.</Verify>
+<Verify>Confirm the runtime versions on 9.1.1. Broadcom's 9.0 and 9.1 pages on scripting environments list Node.js 24, but the 9.1 core concepts page still says Node.js 20. The REST call <code>GET /vco/api/server-configuration/polyglot-runtimes</code> lists what the server offers.</Verify>
 
 </Recipe>
 

@@ -79,7 +79,7 @@ Lab: VCF 9.1, Orchestrator 9.1.1. Save PNGs at roughly 1400 px wide, crop to the
 
 | Figure | File | What to capture | Replaces (old cookbook) |
 |---|---|---|---|
-| 4.1 | `ch04/fig-4-1.png` | Run of action `com.vcfguide.chapter4/probeLanguage`, **Logs** tab: *yes* info lines and *no* warning lines, one per feature | — |
+| 4.1 | `ch04/fig-4-1.png` | Run of action `com.vcfguide.chapter4/probeLanguage`, **Logs** tab: *yes* info lines and *no* warning lines, one per feature | Captured 2026-11-20 |
 | 4.2 | `ch04/fig-4-2.png` | **API Explorer**, search `System`, **System** object expanded, `getModule` selected with its parameter and return type | Java client API Explorer |
 | 4.3 | `ch04/fig-4-3.png` | Run dialog of action `getVmFacts` after a run: `vm` = a lab VM, result with `name`, `powerState`, `cpus`, `memoryMb`, `guestOs` | — |
 | 4.4 | `ch04/fig-4-4.png` | **Version History** tab of `getVmFacts`: versions `1.0.0` and `1.1.0`, compare view with the added `facts.put("host", …)` line highlighted | Java client action version dialog |

@@ -28,7 +28,7 @@ The difference from a JavaScript action is not the language but the model. Node.
 **A first Node.js action**
 
 1. In **Library** > **Actions**, create the action `resolveHostNames` in the module `com.vcfguide.chapter4`.
-2. On the **Script** tab, set the **Runtime** to **Node.js 22**. Add one input, `hostNames`, of type `Array/string`, and set the **Return type** to `Properties`.
+2. On the **Script** tab, set the **Runtime** to **Node.js 24**. Add one input, `hostNames`, of type `Array/string`, and set the **Return type** to `Properties`.
 3. The editor fills in a sample handler that logs its inputs and calls `callback(undefined, {status: "done"})`. Replace it with this script and click **Save**:
 
 ```javascript title="com.vcfguide.chapter4/resolveHostNames"
@@ -67,9 +67,9 @@ exports.handler = function (context, inputs, callback) {
 4. Click **Run** and enter three values for `hostNames`: `vc01.vmw.lab`, `vco01.vmw.lab`, and `nothing.vmw.lab`. The result has one key per name. The first two show an address, the third shows `not found`, and the log has one line per lookup, in the order the answers came back.
 
 <Figure n="4.10" caption="A Node.js action that resolves three names in parallel."
-  capture="Run of action <code>com.vcfguide.chapter4/resolveHostNames</code> with <code>hostNames</code> = <code>vc01.vmw.lab</code>, <code>vco01.vmw.lab</code>, <code>nothing.vmw.lab</code>: <b>Runtime</b> = <b>Node.js 22</b> visible, result with two addresses and one <code>not found</code>, and the three <code>console.log</code> lines in the log." />
+  capture="Run of action <code>com.vcfguide.chapter4/resolveHostNames</code> with <code>hostNames</code> = <code>vc01.vmw.lab</code>, <code>vco01.vmw.lab</code>, <code>nothing.vmw.lab</code>: <b>Runtime</b> = <b>Node.js 24</b> visible, result with two addresses and one <code>not found</code>, and the three <code>console.log</code> lines in the log." />
 
-<Verify>On 9.1.1, confirm that the runtime is listed as <b>Node.js 22</b>, the sample handler the editor fills in, that <code>console.log</code> lines appear on the run's log, and that the container resolves lab names through the appliance's DNS servers.</Verify>
+<Verify>On 9.1.1, confirm that the runtime is listed as <b>Node.js 24</b>, the sample handler the editor fills in, that <code>console.log</code> lines appear on the run's log, and that the container resolves lab names through the appliance's DNS servers.</Verify>
 
 **Report a failure through the callback**
 
@@ -89,15 +89,15 @@ exports.handler = function (context, inputs, callback) {
 
 **Build an environment with an npm package**
 
-7. Go to **Assets** > **Environments** and click **New Environment**. On the **General** tab, enter the name `vcfguide-node-semver` and the description `Node.js 22 with semver, for the VCF Orchestrator Guide.`
-8. On the **Definitions** tab, set the **Runtime** to **Node.js 22**. Under **Dependencies**, click **Add** and enter:
+7. Go to **Assets** > **Environments** and click **New Environment**. On the **General** tab, enter the name `vcfguide-node-semver` and the description `Node.js 24 with semver, for the VCF Orchestrator Guide.`
+8. On the **Definitions** tab, set the **Runtime** to **Node.js 24**. Under **Dependencies**, click **Add** and enter:
    - **Name**: `semver`
    - **Version**: `7.6.3`
    - **Repository**: the default, or your npm mirror
 9. Click **Create**, then open the **Download Logs** tab and check that npm installed `semver@7.6.3` without errors.
 
 <Figure n="4.11" caption="A Node.js environment with one npm dependency."
-  capture="Environment <code>vcfguide-node-semver</code>, <b>Download Logs</b> tab, showing npm adding <code>semver@7.6.3</code> and finishing without errors; <b>Definitions</b> tab with <b>Runtime</b> = <b>Node.js 22</b> visible behind it if possible." />
+  capture="Environment <code>vcfguide-node-semver</code>, <b>Download Logs</b> tab, showing npm adding <code>semver@7.6.3</code> and finishing without errors; <b>Definitions</b> tab with <b>Runtime</b> = <b>Node.js 24</b> visible behind it if possible." />
 
 **Use the package in an action**
 
@@ -175,13 +175,13 @@ If the handler never calls the callback, Orchestrator has no way to know the wor
 
 <ThenNow
   then="Run Node.js scripts on another machine, through the SSH plug-in, and read their output back as text."
-  now="Choose <b>Node.js 22</b> as the runtime of an action or scriptable task, add npm packages through an environment, and get the result back typed." />
+  now="Choose <b>Node.js 24</b> as the runtime of an action or scriptable task, add npm packages through an environment, and get the result back typed." />
 
 </Recipe>
 
 <Recipe type="more">
 
-**Why ES5 style in a runtime that doesn't need it?** Node.js 22 understands modern JavaScript, so `const`, arrow functions, template literals, `async`, and `await` all work in a Node.js action. Rhino is a different matter (recipe 4.1). This book keeps every JavaScript sample, whatever its runtime, to one plain ES5 style, so that a line you copy from one runtime to the other never surprises you. In your own Node.js actions, use whatever Node.js 22 supports.
+**Why ES5 style in a runtime that doesn't need it?** Node.js 24 understands modern JavaScript, so `const`, arrow functions, template literals, `async`, and `await` all work in a Node.js action. Rhino is a different matter (recipe 4.1). This book keeps every JavaScript sample, whatever its runtime, to one plain ES5 style, so that a line you copy from one runtime to the other never surprises you. In your own Node.js actions, use whatever Node.js 24 supports.
 
 **Promises and `async`.** Many npm packages return a promise instead of taking a callback. Wait for the promise and call `callback` in both outcomes: `doWork().then(function (value) { callback(undefined, value); }, function (err) { callback(err); });`. Whether 9.x also accepts an `async` handler that returns its result, without a callback, isn't documented.
 
@@ -205,6 +205,6 @@ If the handler never calls the callback, Orchestrator has no way to know the wor
 - Broadcom TechDocs (VCF 9.0): [Core Concepts for Using Python, Node.js, and PowerShell Scripts](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/configuration-of-vmware-cloud-foundation-operations-orchestrator/managing-actions-in-vro/core-concepts-of-multi-language-support.html).
 - Steven Bright: [Using Node.js in Aria Automation Orchestrator 8.10](https://www.stevenbright.com/2023/01/using-node-js-in-aria-automation-orchestrator-8-10/), a walk-through of the callback model with a DNS example.
 - Broadcom community: [VRO NodeJS scriptable task return](https://community.broadcom.com/vmware-cloud-foundation/discussion/vro-nodejs-scriptable-task-return).
-- Node.js 22 documentation: [dns.lookup](https://nodejs.org/docs/latest-v22.x/api/dns.html#dnslookuphostname-options-callback). The `semver` package: [npm page](https://www.npmjs.com/package/semver).
+- Node.js 24 documentation: [dns.lookup](https://nodejs.org/docs/latest-v24.x/api/dns.html#dnslookuphostname-options-callback). The `semver` package: [npm page](https://www.npmjs.com/package/semver).
 
 </Recipe>
