@@ -66,7 +66,10 @@ errorMessage = "Could not find the VM '" + vmName + "'. " + errorMessage +
 8. Save and run it again with the missing name. The run still fails, which is what you want, but its error now says what went wrong and what to do about it, and the log has an error-level line from `Explain the failure`.
 
 <Figure n="3.11" caption="A failed run with a message written for the person who ran it."
-  capture="Failed run of <b>Find a VM by name</b> with a name that doesn't exist: run header in the <b>Failed</b> state with the custom error text, and the <b>Logs</b> tab showing the error line from <b>Explain the failure</b>." />
+  src="screenshots/ch03/fig-3-11.png"
+  alt="The failed run of Find a VM by name. The red dashed exception path leads down from Find the VM; the element pane shows the thrown exception with the custom message, and the log shows the execution stack." />
+
+Look closely at the message in figure 3.11. When Orchestrator catches an error and copies it into `errorMessage`, it appends where the error came from: ` (Workflow:Find a VM by name / Find the VM (item1)#5)`, that is, the workflow, the element, its item ID, and the script line. That helps in a log, but it's clumsy in a message for a person. To keep only your own text, strip it in `Explain the failure`, for example with `errorMessage = errorMessage.replace(/ \(Workflow:.*\)$/, "");`.
 
 **Catch everything else with a default error handler**
 

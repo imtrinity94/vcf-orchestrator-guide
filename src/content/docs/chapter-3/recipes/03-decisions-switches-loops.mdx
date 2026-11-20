@@ -106,7 +106,8 @@ return attempt < maxAttempts;
 19. Save and run it. On the run form, add three VMs to `vm`. The run calls `Describe a VM` three times, one VM each time, and the output holds the three summaries in the same order.
 
 <Figure n="3.9" caption="A foreach element runs Describe a VM once for each VM in the input array."
-  capture="Run of <b>Describe several VMs</b> with three VMs, <b>Variables</b> tab showing the input array of three VMs and the output <code>summary</code> array with three lines." />
+  src="screenshots/ch03/fig-3-9.png"
+  alt="The run of Describe several VMs: one foreach element called Describe a VM on the canvas, and a log with two lines for each of three VMs, in input order." />
 
 <Verify>Confirm that promoting from a foreach element on 9.1.1 creates array-typed input and output, and that the output collects one value per iteration in order. Note where the 9.1.1 foreach element shows which parameter it iterates over.</Verify>
 

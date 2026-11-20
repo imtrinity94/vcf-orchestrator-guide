@@ -55,12 +55,13 @@ System.log("Woke up at " + new Date());
 <Figure n="3.23" caption="A waiting timer, with its date bound to a variable."
   capture="<b>Schema</b> tab of <b>Pause until an hour</b>: Start, <b>Work out the wake-up time</b>, <b>Waiting timer</b>, <b>Carry on</b>, End. The waiting timer is selected and its <b>Inputs</b> tab shows <code>timer.date</code> bound to <code>wakeDate</code>." />
 
-7. Save and run it, with `wakeHour` set to the next hour on the server's clock. The run logs the time it'll wait until, then shows as **Waiting** in **Activity** > **Workflow Runs**. At the top of the hour it carries on, logs the second line, and completes.
+7. Save and run it, with `wakeHour` set to the next hour on the server's clock. The run logs the time it'll wait until, then shows as **Waiting Signal** in **Activity** > **Workflow Runs**. At the top of the hour it carries on, logs the second line, and completes.
 
-<Figure n="3.24" caption="A run suspended by a waiting timer."
-  capture="<b>Activity</b> > <b>Workflow Runs</b>, filtered on <b>Pause until an hour</b>: one run in the <b>Waiting</b> state, with its start time, and the run's <b>Logs</b> tab showing <i>Waiting until …</i>." />
+<Figure n="3.24" caption="A run suspended by a waiting timer, in the Waiting Signal state."
+  src="screenshots/ch03/fig-3-24.png"
+  alt="The run of Pause until an hour in the Waiting Signal state. The canvas highlights the Waiting timer element between Work out the wake-up time and Carry on; the log shows Waiting until Fri Nov 20 2026 19:00:00 GMT." />
 
-<Verify>Walk steps 4–7 on 9.1.1. Confirm the palette name <b>Waiting timer</b>, that its input is called <code>timer.date</code> on an <b>Inputs</b> tab, and the state shown for a suspended run in <b>Activity</b> > <b>Workflow Runs</b> (<b>Waiting</b>, or a separate waiting-for-signal state).</Verify>
+<Verify>Confirm in the workflow editor on 9.1.1 the palette name <b>Waiting timer</b> and that its input is called <code>timer.date</code> on an <b>Inputs</b> tab. The run state, <b>Waiting Signal</b>, is confirmed on 9.1.1.</Verify>
 
 **Wait for a custom event**
 

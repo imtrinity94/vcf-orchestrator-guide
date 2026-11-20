@@ -85,13 +85,14 @@ if (vmNames.length === 0) {
 
 10. Drag a **Workflow note** from the **Generic** group behind the two elements and type `Find and describe VMs by name pattern`. Notes don't run. They label a part of the schema for the next reader.
 11. Use the zoom and **fit** controls at the bottom of the canvas to see the whole schema, then click **Save**.
-12. Run the workflow with `namePattern` set to `^vc` (or any pattern that matches VMs in your lab). The **Logs** tab shows the count from the action, then one line per VM. The **Variables** tab shows `vms` and `vmNames`.
+12. Run the workflow with `namePattern` set to a pattern that matches some VMs in your lab. Our lab has three VMs called `testvm01` to `testvm03`, so figure 3.6 uses `^testvm`. The **Logs** tab shows the count from the action, then one line per VM. The **Variables** tab shows `vms` and `vmNames`.
 
 <Figure n="3.5" caption="The finished schema, with an action element, a scriptable task, and a note."
   capture="<b>Schema</b> tab of <b>List VMs by name</b>: Start, <b>findVmsByName</b> action element, <b>Describe each VM</b> scriptable task, End, all inside a workflow note reading <i>Find and describe VMs by name pattern</i>." />
 
 <Figure n="3.6" caption="The run's log, with the count from the action and a line per VM."
-  capture="Workflow run of <b>List VMs by name</b> with <code>namePattern</code> = <code>^vc</code>, <b>Logs</b> tab showing <i>N of M VMs match /^vc/</i> followed by one line per VM." />
+  src="screenshots/ch03/fig-3-6.png"
+  alt="The run of List VMs by name with namePattern ^testvm. The canvas shows the findVmsByName action element and the Describe each VM task; the Logs tab shows 3 of 94 VMs match /^testvm/ and one line per VM." />
 
 <Verify>Confirm the <b>Promote</b> banner and dialog on 9.1.1, the default output name <code>actionResult</code>, that renaming a variable on the <b>Variables</b> tab keeps the element's binding, and the names of the zoom and fit controls on the canvas.</Verify>
 

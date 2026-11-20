@@ -44,15 +44,15 @@ Lab: VCF 9.1, Orchestrator 9.1.1. Save PNGs at roughly 1400 px wide, crop to the
 |---|---|---|---|
 | 3.1 | `ch03/fig-3-1.png` | Workflow editor for **Describe a VM**, **Inputs/Outputs** tab: input `vm` (`VC:VirtualMachine`), output `summary` (`string`) | Java client IN and OUT tabs |
 | 3.2 | `ch03/fig-3-2.png` | **Schema** tab of **Describe a VM**: Start, **Read power state**, **Build summary**, End; **Build summary** selected, **Inputs/Outputs** tab with `vm` and `powerState` in, `summary` out | Java client Visual Binding tab |
-| 3.3 | `ch03/fig-3-3.png` | Run of **Describe a VM**, **Variables** tab with `vm`, `powerState` = `poweredOn`, and `summary` filled in | Java client workflow token variables |
+| 3.3 | `ch03/fig-3-3.png` | Run of **Describe a VM**, **Variables** tab with `vm`, `powerState` = `poweredOn`, and `summary` filled in | Captured 2026-11-20 |
 | 3.4 | `ch03/fig-3-4.png` | **Schema** tab of **List VMs by name**, **Promote** dialog for **findVmsByName**: `namePattern` → **Input**, `actionResult` → **Variable** | Java client "promote" pop-up |
 | 3.5 | `ch03/fig-3-5.png` | **Schema** tab of **List VMs by name**: Start, **findVmsByName** action element, **Describe each VM**, End, inside a workflow note | Schema with action element |
-| 3.6 | `ch03/fig-3-6.png` | Run of **List VMs by name** with `namePattern` = `^vc`, **Logs** tab: the match count, then one line per VM | Java client Logs tab |
+| 3.6 | `ch03/fig-3-6.png` | Run of **List VMs by name** with `namePattern` = `^vc`, **Logs** tab: the match count, then one line per VM | Captured 2026-11-20 |
 | 3.7 | `ch03/fig-3-7.png` | **Schema** tab of **Wait for VMware Tools**, switch selected, **Cases** tab: `powerState` equals `poweredOn` → **Check VMware Tools**, default → **Not powered on** | Switch element dialog |
 | 3.8 | `ch03/fig-3-8.png` | Full schema of **Wait for VMware Tools**: switch, **Tools running?** decision, **Try again?** custom decision with its true arrow looping back to **Check VMware Tools** | Loop schema |
-| 3.9 | `ch03/fig-3-9.png` | Run of **Describe several VMs** with three VMs, **Variables** tab: input array of three VMs, output `summary` array of three lines | Foreach element dialog |
+| 3.9 | `ch03/fig-3-9.png` | Run of **Describe several VMs** with three VMs, **Variables** tab: input array of three VMs, output `summary` array of three lines | Captured 2026-11-20 |
 | 3.10 | `ch03/fig-3-10.png` | **Schema** tab of **Find a VM by name**: red dashed exception arrow from **Find the VM** to **Explain the failure** → **Thrown exception**; **Find the VM** selected, **General** tab, **Exception handling** = `errorMessage` | Java client Exceptions tab |
-| 3.11 | `ch03/fig-3-11.png` | Failed run of **Find a VM by name** with a missing name: run header in **Failed** state with the custom error, **Logs** tab with the error line | Failed workflow token |
+| 3.11 | `ch03/fig-3-11.png` | Failed run of **Find a VM by name** with a missing name: run header in **Failed** state with the custom error, **Logs** tab with the error line | Captured 2026-11-20 |
 | 3.12 | `ch03/fig-3-12.png` | **Schema** tab of **Find a VM by name** with a **Default error handler** → **Log unexpected error** → **Thrown exception**, beside the main path | — |
 | 3.13 | `ch03/fig-3-13.png` | **Summary** tab of **List VMs by name**, **Resume workflow from failed behavior** = **Enabled**, drop-down open with **System default**, **Enabled**, **Disabled** | — |
 | 3.14 | `ch03/fig-3-14.png` | Run of **List VMs by name** in **Waiting** after a failure, **Answer** dialog with **Resume** selected, **Parameters** tab: `namePattern` changed from `[vc` to `^vc` | — |
@@ -65,7 +65,7 @@ Lab: VCF 9.1, Orchestrator 9.1.1. Save PNGs at roughly 1400 px wide, crop to the
 | 3.21 | `ch03/fig-3-21.png` | **Input Form** of **Report VMs**, **Validations** tab: **Orchestrator validation** *Name pattern is a valid regular expression* with action `validateNamePattern` | — |
 | 3.22 | `ch03/fig-3-22.png` | Run form of **Report VMs**, **What to find** tab: **vCenter** = `vc01.vmw.lab`, **VM name pattern** = `[vc`, **Power state** = `any`, validation message shown | Java client run dialog |
 | 3.23 | `ch03/fig-3-23.png` | **Schema** tab of **Pause until an hour**: Start, **Work out the wake-up time**, **Waiting timer**, **Carry on**, End; timer selected, **Inputs** tab `timer.date` → `wakeDate` | Waiting Timer element |
-| 3.24 | `ch03/fig-3-24.png` | **Activity > Workflow Runs** filtered on **Pause until an hour**: one run **Waiting**, **Logs** tab with *Waiting until …* | — |
+| 3.24 | `ch03/fig-3-24.png` | **Activity > Workflow Runs** filtered on **Pause until an hour**: one run **Waiting**, **Logs** tab with *Waiting until …* | Captured 2026-11-20 |
 | 3.25 | `ch03/fig-3-25.png` | **Schema** tab of **Wait for a signal**: **Set the deadline**, **Wait for custom event** selected, inputs `eventName`, `endDate`, `isExternalEvent`, output `success` → `signalled` | — |
 | 3.26 | `ch03/fig-3-26.png` | **Activity > Workflow Runs**: completed **Send a signal** run and the **Wait for a signal** run it released; **Variables** tab with `eventName` = `vcfguide-signal-test`, `signalled` = `true` | — |
 | 3.27 | `ch03/fig-3-27.png` | **Schema** tab of **Start a VM description**: **Asynchronous workflow** element calling **Describe a VM** selected, `vm` under **Inputs**, `describeToken` under **Output Options**; **Report the token** | Asynchronous workflow element |
@@ -94,8 +94,8 @@ Lab: VCF 9.1, Orchestrator 9.1.1. Save PNGs at roughly 1400 px wide, crop to the
 | 4.13 | `ch04/fig-4-13.png` | **Script** tab of action `formatUptime`: **Runtime** = **PowerShell 7.4**, input `seconds` (`number`), return type `string`, `Handler` function | — |
 | 4.14 | `ch04/fig-4-14.png` | **Script** tab of action `getSnapshotReport`: **Runtime** = **PowerCLI 13 (PowerShell 7.4)**, inputs `vcenter`, `user`, `password` (`SecureString`), `maxAgeDays`, return type `Properties`, **Memory limit** `512`, **Timeout** `300` | — |
 | 4.15 | `ch04/fig-4-15.png` | Run of `getSnapshotReport` against `vc01.vmw.lab`, `maxAgeDays` = `7`: result `vcenter`, `maxAgeDays`, `count`, multi-line `report`, `Write-Host` log line; password blurred | PowerShell plug-in host configuration |
-| 4.16 | `ch04/fig-4-16.png` | Run of **Log at every level**, **Logs** tab: info, warning, and error lines with the `[Log at every level <run ID>]` prefix, level filter open | Java client Logs tab |
-| 4.17 | `ch04/fig-4-17.png` | The 9.1.1 view that lists `Server.*` entries for a run of **Log at every level** (run **Events** tab or audit view): the warning and the error with short and long text | Java client Events tab |
+| 4.16 | `ch04/fig-4-16.png` | Run of **Log at every level**, **Logs** tab: info, warning, and error lines with the `[Log at every level <run ID>]` prefix, level filter open | Captured 2026-11-20 |
+| 4.17 | `ch04/fig-4-17.png` | The 9.1.1 view that lists `Server.*` entries for a run of **Log at every level** (run **Events** tab or audit view): the warning and the error with short and long text | Captured 2026-11-20 |
 | 4.18 | `ch04/fig-4-18.png` | **System Settings > Log Configuration**: server and scripting log levels at `INFO`, and any rotation settings | Control Center Logs page |
 | 4.19 | `ch04/fig-4-19.png` | **Assets > Configurations**, folders **VCF Orchestrator Guide > Chapter 4 > vCenters**, element `vc01.vmw.lab`, **Variables** tab: `user` (`string`), `password` (`SecureString`, hidden) | Java client Configurations view, Attributes tab |
 | 4.20 | `ch04/fig-4-20.png` | **Variables** tab of **Report old snapshots**, `maxAgeDays` (`number`) being edited: **Bind to configuration**, `vcfguide-settings`, `snapshotMaxAgeDays` | Java client "Link to configuration attribute" |

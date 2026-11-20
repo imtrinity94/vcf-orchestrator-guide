@@ -89,23 +89,25 @@ try {
 
 **Read the run's log**
 
-6. Open the run and its **Logs** tab. Each line shows its time, its level, and the text with the `[Log at every level …]` prefix. Use the level filter to show only warnings and errors: that's the view you want on a run with hundreds of lines.
+6. Open the run and its **Logs** tab. Each line shows its time, its level, and the text with the `[Log at every level …]` prefix. Use the **Severity** filter (**ALL**, **DEBUG**, **INFO**, **WARNING**, **ERROR**) to show only warnings and errors: that's the view you want on a run with hundreds of lines.
 
-<Figure n="4.16" caption="A run's log with lines at every level, filtered to warnings and errors."
-  capture="Run of <b>Log at every level</b>, <b>Logs</b> tab: info line <i>Found N VMs</i>, the warning <i>… VMs are not powered on</i>, and the error <i>Caught: Simulated failure …</i>, all with the <code>[Log at every level &lt;run ID&gt;]</code> prefix; level filter open." />
+<Figure n="4.16" caption="A run's log with lines at three levels. The purple lines are the Server.* entries."
+  src="screenshots/ch04/fig-4-16.png"
+  alt="The run of Log at every level. Its log shows an INFO line Found 94 VMs, two WARNING lines and two ERROR lines, all prefixed with [Log at every level and the run ID]; the second of each pair, in purple, carries the long text in brackets." />
 
 7. Look for the debug lines, one per VM. Whether they appear depends on the scripting log level, which is `INFO` by default. Raise it to `DEBUG` (step 10), run the workflow again, and they appear.
 
-<Verify>On 9.1.1, check the <b>Logs</b> tab: its columns, the name and choices of the level filter, and whether <code>System.debug</code> lines are hidden at the default scripting log level or only filtered out of the view. Also confirm that <code>workflow.currentWorkflow.name</code> and <code>workflow.id</code> give the workflow's name and the run's ID in a scriptable task.</Verify>
+On 9.1.1, `workflow.currentWorkflow.name` and `workflow.id` give the workflow name and the run ID, as the prefix in figure 4.16 shows. In our run, with the scripting log level at its default, `INFO`, the `System.debug` lines didn't appear in the run's log at all.
 
 **Find the persistent entries**
 
 8. The warning and the error were also written with `Server.warn` and `Server.error`. Those entries are stored in Orchestrator's database with the run. Look for them on the run's **Events** tab, and on the workflow's own events or audit view.
 
-<Figure n="4.17" caption="Persistent log entries written with Server.warn and Server.error."
-  capture="The view on 9.1.1 that lists <code>Server.*</code> entries for a run of <b>Log at every level</b> (a run <b>Events</b> tab, or the audit or events view): the warning and the error, with short and long text." />
+<Figure n="4.17" caption="Persistent entries written with Server.warn and Server.error, shown in the run's own log."
+  src="screenshots/ch04/fig-4-17.png"
+  alt="Close-up of the Logs tab: the Severity filter and the SERVER and SYSTEM buttons above the log, and the Server entries in purple, each with the short text followed by the long text in brackets." />
 
-<Verify>Find where 9.1.1 shows <code>Server.log</code>, <code>Server.warn</code>, and <code>Server.error</code> entries: a tab on the run, the workflow's audit view, or only the REST API (<code>GET /vco/api/workflows/&#123;id&#125;/executions/&#123;executionId&#125;/syslogs</code> and <code>…/logs</code> in 8.x). Recipe 3.2 has the same open question.</Verify>
+On 9.1.1, `Server.warn` and `Server.error` entries appear in the run's own **Logs** tab, next to the `System.*` lines, in purple. Each shows the short text, then the long text in brackets. The **SERVER** and **SYSTEM** buttons above the log switch each kind on and off.
 
 **Log from the other runtimes**
 
