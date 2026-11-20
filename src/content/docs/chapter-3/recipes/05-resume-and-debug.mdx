@@ -71,14 +71,14 @@ You practise all three on `List VMs by name` from recipe 3.2. It only reads from
 
 **Record runs for replay**
 
-17. As an administrator, go to **System Settings** > **Performance and Features**. Turn on **Run Replay Status** and click **Save**. The server can take up to five minutes to pick up the change.
+17. As an administrator, go to **System Settings** > **Performance and Features**. Under **Run Replay**, switch on **Enable run replay**. Two more switches appear: **Record replay for all runs** (on) and **Record scripting API calls** (off). Click **Save**. Saving restarts the Orchestrator server about a minute later, so don't do it while important runs are in progress.
 18. Run `List VMs by name` normally, with `^vc`.
 19. Go to **Activity** > **Workflow Runs** and open the run. The left side of the run now lists each element that ran. Select `findVmsByName`, then `Describe each VM`. For each one, the **Variables** tab shows what the element changed, and the **Logs** tab shows what it wrote.
 
 <Figure n="3.17" caption="Replaying a finished run, one element at a time."
   capture="<b>Activity</b> > <b>Workflow Runs</b>, a run of <b>List VMs by name</b> with run replay on. The left-hand list shows <b>findVmsByName</b> and <b>Describe each VM</b>; <b>findVmsByName</b> is selected and its <b>Variables</b> tab shows the <code>vms</code> array it set." />
 
-<Verify>Confirm on 9.1.1 the path <b>System Settings</b> > <b>Performance and Features</b>, the <b>Run Replay Status</b> toggle, and the layout of a replayed run in <b>Activity</b> > <b>Workflow Runs</b>.</Verify>
+<Verify>Confirm on 9.1.1 the path <b>System Settings</b> > <b>Performance and Features</b>, and the layout of a replayed run in <b>Activity</b> > <b>Workflow Runs</b>.</Verify>
 
 </Recipe>
 

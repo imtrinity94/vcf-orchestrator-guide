@@ -86,11 +86,11 @@ Lab: VCF 9.1, Orchestrator 9.1.1. Save PNGs at roughly 1400 px wide, crop to the
 | 4.5 | `ch04/fig-4-5.png` | References or dependencies view of `com.vcfguide.chapter3/findVmsByName`, listing **List VMs by name** and **Report VMs** | Java client "Find elements that use this element" |
 | 4.6 | `ch04/fig-4-6.png` | **Script** tab of action `splitHostName`: **Runtime** = **Python 3.10**, input `fqdn`, return type `Properties`, default **Memory limit** and **Timeout**, `handler` function | — |
 | 4.7 | `ch04/fig-4-7.png` | **System Settings > Performance and Features > Environment Repositories**, **Default Public Repositories** on, **Manage Repositories** visible | — |
-| 4.8 | `ch04/fig-4-8.png` | Environment `vcfguide-python-crypto`, **Download Logs** tab: pip installing `cryptography-43.0.3` and `cffi`, no errors | — |
+| 4.8 | `ch04/fig-4-8.png` | Environment `vcfguide_python_crypto`, **Download Logs** tab: pip installing `cryptography-43.0.3` and `cffi`, no errors | — |
 | 4.9 | `ch04/fig-4-9.png` | Run of action `getCertificateExpiry` with `vc01.vmw.lab`, `443`: result `host`, `subject`, `notAfter`, `daysLeft`, and the printed log line | — |
 | 4.10 | `ch04/fig-4-10.png` | Run of action `resolveHostNames` (**Runtime** = **Node.js 22**) with `vc01.vmw.lab`, `vco01.vmw.lab`, `nothing.vmw.lab`: result with two addresses and one `not found`, three `console.log` lines | — |
-| 4.11 | `ch04/fig-4-11.png` | Environment `vcfguide-node-semver`, **Download Logs** tab: npm adding `semver@7.6.3`, no errors | — |
-| 4.12 | `ch04/fig-4-12.png` | Run of action `checkMinimumVersion` (runtime `vcfguide-node-semver`) with `9.0.1.0` and `9.0.0`: result `version`, `minimum`, `ok` = `true`, and the log line | — |
+| 4.11 | `ch04/fig-4-11.png` | Environment `vcfguide_node_semver`, **Download Logs** tab: npm adding `semver@7.6.3`, no errors | — |
+| 4.12 | `ch04/fig-4-12.png` | Run of action `checkMinimumVersion` (runtime `vcfguide_node_semver`) with `9.0.1.0` and `9.0.0`: result `version`, `minimum`, `ok` = `true`, and the log line | — |
 | 4.13 | `ch04/fig-4-13.png` | **Script** tab of action `formatUptime`: **Runtime** = **PowerShell 7.4**, input `seconds` (`number`), return type `string`, `Handler` function | — |
 | 4.14 | `ch04/fig-4-14.png` | **Script** tab of action `getSnapshotReport`: **Runtime** = **PowerCLI 13 (PowerShell 7.4)**, inputs `vcenter`, `user`, `password` (`SecureString`), `maxAgeDays`, return type `Properties`, **Memory limit** `512`, **Timeout** `300` | — |
 | 4.15 | `ch04/fig-4-15.png` | Run of `getSnapshotReport` against `vc01.vmw.lab`, `maxAgeDays` = `7`: result `vcenter`, `maxAgeDays`, `count`, multi-line `report`, `Write-Host` log line; password blurred | PowerShell plug-in host configuration |

@@ -18,7 +18,7 @@ The difference from a JavaScript action is not the language but the model. Node.
 
 - The action module `com.vcfguide.chapter4` from recipe 4.1.
 - Recipe 4.3, for how polyglot actions run and how an environment gets its packages. This recipe doesn't repeat it.
-- Access from the Orchestrator appliance to the npm registry, or to an internal npm mirror. An administrator turns it on under **Environment Repositories**, as in recipe 4.3, steps 5 and 6.
+- Access from the Orchestrator appliance to the npm registry, or to an internal npm mirror. An administrator turns it on under **Environment Repositories**, as in recipe 4.3, steps 5 to 7.
 - The vCenter `vc01.vmw.lab`, registered in recipe 1.9. The examples only read from it.
 
 </Recipe>
@@ -28,7 +28,7 @@ The difference from a JavaScript action is not the language but the model. Node.
 **A first Node.js action**
 
 1. In **Library** > **Actions**, create the action `resolveHostNames` in the module `com.vcfguide.chapter4`.
-2. On the **Script** tab, set the **Runtime** to **Node.js 24**. Add one input, `hostNames`, of type `Array/string`, and set the **Return type** to `Properties`.
+2. On the **Script** tab, set the **Runtime Environment** to **Node.js 24**. Add one input, `hostNames`, of type `Array/string`, and set the **Return type** to `Properties`.
 3. The editor fills in a sample handler that logs its inputs and calls `callback(undefined, {status: "done"})`. Replace it with this script and click **Save**:
 
 ```javascript title="com.vcfguide.chapter4/resolveHostNames"
@@ -89,7 +89,7 @@ exports.handler = function (context, inputs, callback) {
 
 **Build an environment with an npm package**
 
-7. Go to **Assets** > **Environments** and click **New Environment**. On the **General** tab, enter the name `vcfguide-node-semver` and the description `Node.js 24 with semver, for the VCF Orchestrator Guide.`
+7. Go to **Assets** > **Environments** and click **New Environment**. On the **General** tab, enter the name `vcfguide_node_semver` and the description `Node.js 24 with semver, for the VCF Orchestrator Guide.`
 8. On the **Definitions** tab, set the **Runtime** to **Node.js 24**. Under **Dependencies**, click **Add** and enter:
    - **Name**: `semver`
    - **Version**: `7.6.3`
@@ -97,11 +97,11 @@ exports.handler = function (context, inputs, callback) {
 9. Click **Create**, then open the **Download Logs** tab and check that npm installed `semver@7.6.3` without errors.
 
 <Figure n="4.11" caption="A Node.js environment with one npm dependency."
-  capture="Environment <code>vcfguide-node-semver</code>, <b>Download Logs</b> tab, showing npm adding <code>semver@7.6.3</code> and finishing without errors; <b>Definitions</b> tab with <b>Runtime</b> = <b>Node.js 24</b> visible behind it if possible." />
+  capture="Environment <code>vcfguide_node_semver</code>, <b>Download Logs</b> tab, showing npm adding <code>semver@7.6.3</code> and finishing without errors; <b>Definitions</b> tab with <b>Runtime</b> = <b>Node.js 24</b> visible behind it if possible." />
 
 **Use the package in an action**
 
-10. Create the action `checkMinimumVersion` in `com.vcfguide.chapter4`. On the **Script** tab, set the **Runtime** to the environment `vcfguide-node-semver`.
+10. Create the action `checkMinimumVersion` in `com.vcfguide.chapter4`. On the **Script** tab, set the **Runtime Environment** to the environment `vcfguide_node_semver`.
 11. Add the inputs `version` and `minimum`, both of type `string`, and set the **Return type** to `Properties`. Enter this script:
 
 ```javascript title="com.vcfguide.chapter4/checkMinimumVersion"
@@ -131,7 +131,7 @@ exports.handler = function (context, inputs, callback) {
 12. Run it with `version` = `9.0.1.0` and `minimum` = `9.0.0`. The result shows `version` = `9.0.1`, `minimum` = `9.0.0`, and `ok` = `true`.
 
 <Figure n="4.12" caption="The npm package at work: a version check returned as Properties."
-  capture="Run of action <code>checkMinimumVersion</code> with <code>version</code> = <code>9.0.1.0</code> and <code>minimum</code> = <code>9.0.0</code>: <b>Runtime</b> = <code>vcfguide-node-semver</code>, result <code>version</code>, <code>minimum</code>, <code>ok</code> = <code>true</code>, and the log line." />
+  capture="Run of action <code>checkMinimumVersion</code> with <code>version</code> = <code>9.0.1.0</code> and <code>minimum</code> = <code>9.0.0</code>: <b>Runtime</b> = <code>vcfguide_node_semver</code>, result <code>version</code>, <code>minimum</code>, <code>ok</code> = <code>true</code>, and the log line." />
 
 **Call it from JavaScript**
 

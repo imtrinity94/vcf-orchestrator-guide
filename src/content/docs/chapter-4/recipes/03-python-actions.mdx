@@ -28,7 +28,7 @@ In this recipe you write a small Python action with no extra packages, then buil
 **Write a first Python action**
 
 1. In **Library** > **Actions**, create the action `splitHostName` in the module `com.vcfguide.chapter4`.
-2. On the **Script** tab, set the **Runtime** to **Python 3.14**. Add one input, `fqdn`, of type `string`, and set the **Return type** to `Properties`. Leave **Memory limit** and **Timeout** at their defaults.
+2. On the **Script** tab, set the **Runtime Environment** to **Python 3.14**. Add one input, `fqdn`, of type `string`, and set the **Return type** to `Properties`. Leave **Memory limit** and **Timeout** at their defaults.
 3. Replace the sample code with this script and click **Save**:
 
 ```python title="com.vcfguide.chapter4/splitHostName"
@@ -51,31 +51,32 @@ def handler(context, inputs):
 
 5. As an administrator, open **System Settings** > **Performance and Features** > **Environment Repositories**.
 6. Choose where packages come from:
-   - To use PyPI, turn on **Default Public Repositories**. It's off by default.
-   - To use an internal mirror, click **Manage Repositories**, add the mirror's URL, and pick it later for each dependency.
+   - To use PyPI (and npm, for Node.js), switch on **Enable Default Public Repository for Environments** under **Default Public Repository**. The switch carries the note *I acknowledge the security implications of enabling the Default Public Repository*. A second switch, **Suppress the warning when selecting the Default Public Repository**, stops the client from warning each time you pick it.
+   - To use an internal mirror, switch on **Enable Additional Repositories for Environments**, add the mirror, and pick it later for each dependency.
+7. Click **Save**. Saving this page restarts the Orchestrator server: a banner says *Configuration Changes detected. The Orchestrator server is expected to restart in* … *seconds*.
 
 <Figure n="4.7" caption="Allowing Orchestrator to download packages."
   capture="<b>System Settings</b> > <b>Performance and Features</b> > <b>Environment Repositories</b>, <b>Default Public Repositories</b> switched on, and the <b>Manage Repositories</b> button visible." />
 
 **Build an environment**
 
-7. Go to **Assets** > **Environments** and click **New Environment**.
-8. On the **General** tab, enter the name `vcfguide-python-crypto` and the description `Python 3.14 with cryptography, for the VCF Orchestrator Guide.`
-9. On the **Definitions** tab, set the **Runtime** to **Python 3.14**. Under **Dependencies**, click **Add** and enter:
+8. Go to **Assets** > **Environments** and click **New Environment**.
+9. On the **General** tab, enter the name `vcfguide_python_crypto` and the description `Python 3.14 with cryptography, for the VCF Orchestrator Guide.`
+10. On the **Definitions** tab, set the **Runtime** to **Python 3.14**. Under **Dependencies**, click **Add** and enter:
    - **Name**: `cryptography`
    - **Version**: `43.0.3`
    - **Repository**: the default, or your mirror
-10. Click **Create**. Orchestrator downloads the package and builds the environment. Open the **Download Logs** tab and check that `cryptography` and the packages it needs were installed without errors.
+11. Click **Create**. Orchestrator downloads the package and builds the environment. Open the **Download Logs** tab and check that `cryptography` and the packages it needs were installed without errors.
 
 <Figure n="4.8" caption="An environment with one Python dependency, after a successful build."
-  capture="Environment <code>vcfguide-python-crypto</code>, <b>Download Logs</b> tab, showing pip installing <code>cryptography-43.0.3</code> and its dependency <code>cffi</code>, ending without errors." />
+  capture="Environment <code>vcfguide_python_crypto</code>, <b>Download Logs</b> tab, showing pip installing <code>cryptography-43.0.3</code> and its dependency <code>cffi</code>, ending without errors." />
 
-<Verify>Walk steps 5–10 on 9.1.1: the menu path to <b>Environment Repositories</b>, the names <b>Default Public Repositories</b> and <b>Manage Repositories</b>, the <b>General</b>, <b>Definitions</b>, and <b>Download Logs</b> tabs, and that <code>cryptography</code> 43.0.3 installs as a ready-built wheel in the Python 3.14 runtime.</Verify>
+<Verify>Walk steps 8–11 on 9.1.1: the menu path to <b>Environment Repositories</b>, the names <b>Default Public Repositories</b> and <b>Manage Repositories</b>, the <b>General</b>, <b>Definitions</b>, and <b>Download Logs</b> tabs, and that <code>cryptography</code> 43.0.3 installs as a ready-built wheel in the Python 3.14 runtime.</Verify>
 
 **Use the environment from an action**
 
-11. Create the action `getCertificateExpiry` in `com.vcfguide.chapter4`. On the **Script** tab, set the **Runtime** to the environment `vcfguide-python-crypto` instead of plain Python 3.14.
-12. Add the inputs `hostName` of type `string` and `port` of type `number`, and set the **Return type** to `Properties`. Enter this script:
+12. Create the action `getCertificateExpiry` in `com.vcfguide.chapter4`. On the **Script** tab, set the **Runtime Environment** to the environment `vcfguide_python_crypto` instead of plain Python 3.14.
+13. Add the inputs `hostName` of type `string` and `port` of type `number`, and set the **Return type** to `Properties`. Enter this script:
 
 ```python title="com.vcfguide.chapter4/getCertificateExpiry"
 import socket
@@ -110,14 +111,14 @@ def handler(context, inputs):
     }
 ```
 
-13. Run it with `hostName` = `vc01.vmw.lab` and `port` = `443`. The result shows the certificate's subject, its expiry date, and the days left.
+14. Run it with `hostName` = `vc01.vmw.lab` and `port` = `443`. The result shows the certificate's subject, its expiry date, and the days left.
 
 <Figure n="4.9" caption="The Python action's result: the certificate of vc01.vmw.lab and the days it has left."
   capture="Run of action <code>getCertificateExpiry</code> with <code>hostName</code> = <code>vc01.vmw.lab</code> and <code>port</code> = <code>443</code>: result with <code>host</code>, <code>subject</code>, <code>notAfter</code>, and <code>daysLeft</code>, and the log line printed by the handler." />
 
 **Call it from JavaScript**
 
-14. Python actions are called like any other. In a JavaScript action or scriptable task:
+15. Python actions are called like any other. In a JavaScript action or scriptable task:
 
 ```javascript title="Calling the Python action from JavaScript"
 var expiry = System.getModule("com.vcfguide.chapter4").getCertificateExpiry("vc01.vmw.lab", 443);

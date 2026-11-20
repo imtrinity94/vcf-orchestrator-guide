@@ -27,7 +27,7 @@ PowerShell has two habits that trip people up in Orchestrator. Everything a func
 **A first PowerShell action**
 
 1. In **Library** > **Actions**, create the action `formatUptime` in the module `com.vcfguide.chapter4`.
-2. On the **Script** tab, set the **Runtime** to **PowerShell 7.6**. Add one input, `seconds`, of type `number`, and set the **Return type** to `string`.
+2. On the **Script** tab, set the **Runtime Environment** to **PowerShell 7.6**. Add one input, `seconds`, of type `number`, and set the **Return type** to `string`.
 3. The editor fills in a sample `Handler` function. Replace it with this script and click **Save**:
 
 ```powershell title="com.vcfguide.chapter4/formatUptime"
@@ -59,7 +59,7 @@ function Handler($context, $inputs) {
 
 **A PowerCLI action that connects to vCenter**
 
-7. Create the action `getSnapshotReport` in `com.vcfguide.chapter4`. On the **Script** tab, set the **Runtime** to **PowerCLI 9.1.1 (PowerShell 7.6)**.
+7. Create the action `getSnapshotReport` in `com.vcfguide.chapter4`. On the **Script** tab, set the **Runtime Environment** to **PowerCLI 9.1.1 (PowerShell 7.6)**.
 8. Add four inputs: `vcenter` (`string`), `user` (`string`), `password` (`SecureString`), and `maxAgeDays` (`number`). Set the **Return type** to `Properties`.
 9. Raise the limits before the first run: set **Memory limit** to `512` MB and **Timeout** to `300` seconds. The default of 150 MB is too little for loading PowerCLI and connecting to vCenter.
 
